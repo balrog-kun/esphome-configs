@@ -1,0 +1,106 @@
+#vim: ts=2
+esphome:
+  name: bedroom2light
+  platform: ESP8266
+  board: esp01_1m
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid2
+      password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 10.0.5.10
+    gateway: 10.0.6.1
+    subnet: 255.255.252.0
+    dns1: 10.0.6.1
+    dns2: 8.8.8.8
+
+  output_power: 17.5dB
+  fast_connect: true
+
+  # Enable fallback hotspot in case wifi connection fails
+  ap:
+    ssid: "Bedroom2Light Fallback Hotspot"
+    password: !secret ap_password
+    ap_timeout: 2min
+
+captive_portal:
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  services:
+    - service: alarm
+      then:
+        - script.execute: ring_alarm
+
+ota:
+  password: !secret ota_password
+
+web_server:
+  port: 80
+
+script:
+  - id: ring_alarm
+    then:
+      - if:
+          condition:
+            not:
+              script.is_running: ring_alarm
+          then:
+            - light.toggle: bedroom2_light
+            - delay: 1s
+            - light.toggle: bedroom2_light
+            - delay: 2s
+            - light.toggle: bedroom2_light
+            - delay: 1s
+            - light.toggle: bedroom2_light
+
+output:
+  - id: bedroom2_light_gpio
+    platform: gpio
+    pin: GPIO12
+
+light:
+  - name: "Bedroom 2 light"
+    id: bedroom2_light
+    output: bedroom2_light_gpio
+    platform: binary
+
+status_led:
+  pin:
+    number: GPIO13
+    inverted: yes
+
+binary_sensor:
+  - name: "Bedroom 2 switch"
+    on_state:
+      then:
+        light.toggle: bedroom2_light
+    platform: gpio
+    pin:
+      number: GPIO14
+      mode: INPUT_PULLUP
+    filters:
+      delayed_on_off: 40ms
+
+sensor:
+  - name: "Bedroom 2 node signal"
+    platform: wifi_signal
+    filters:
+      - sliding_window_moving_average:
+          window_size: 32
+          send_every: 32
+          send_first_at: 16
+      - delta: 1
+    update_interval: 30s
+  - name: "Bedroom 2 node uptime"
+    platform: uptime
+    update_interval: 1h
+
+text_sensor:
+  - name: "Bedroom 2 node version"
+    platform: version

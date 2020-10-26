@@ -1,0 +1,302 @@
+# vim: et:ts=2:sw=2
+esphome:
+  name: door
+  platform: ESP32
+  board: lolin32
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid1
+      password: !secret wifi_password
+    - ssid: !secret wifi_ssid2
+      password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 10.0.5.12
+    gateway: 10.0.6.1
+    subnet: 255.255.252.0
+    dns1: 10.0.6.1
+    dns2: 8.8.8.8
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Door Fallback Hotspot"
+    password: !secret ap_password
+    ap_timeout: 2min
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  reboot_timeout: 0s
+  services:
+    - service: alarm
+      then:
+
+ota:
+  password: !secret ota_password
+
+web_server:
+  port: 80
+  js_url: http://openstreetmap.pl/balrog/webserver-v1.js
+
+output:
+  - id: motor_unlatch
+    platform: ledc
+    pin: 4
+  - id: motor_latch
+    platform: ledc
+    pin: 0
+
+script:
+  - id: monitor_current
+    then:
+      - while:
+          condition:
+            lambda: 'return true;'
+          then:
+            - delay: 40ms
+            - component.update: motor_current
+  - id: relatch_later
+    then:
+      - delay: 15s
+      - cover.close: door_latch
+  - id: mag_field_update
+    then:
+      - lambda: |-
+          static struct pt { float x, y, z, angle; int turns; } vals[] = {
+            { 22.6, 13.1, 7.0,     0.0, 4 },
+            { -16.5, -41.3, 1.7,   0.0, 3 },
+            { -79.6, -164.0, 62.6, 0.0, 2 },
+            { 37.8, -206.6, 144.4, 0.0, 1 },
+            { 130.2, -99.7, 90.6,  0.0, 0 },
+            { 117.0, -67.4, 81.3,  0.3 },
+            { 81.3, 1.3, 35.2,     1.5 },
+            { 66.6, 10.4, 13.1,    3.0 },
+            { 62.2, 10.0, 9.6,     7.0 },
+            { 59.2, 9.6, 7.0,      15.0 },
+            { 57.4, 8.7, 4.8,      30.0 },
+            { 57.0, 6.5, 2.6,      90.0 },
+          };
+
+          struct pt mag = {
+            id(mag_x).state,
+            id(mag_y).state,
+            id(mag_z).state,
+          };
+
+          float min_dist = 1000.0;
+          float min_dist2 = 1000.0;
+          int pos, min_pos = 4, min_pos2 = 4;
+
+          for (pos = 0; pos < 12; pos++) {
+            struct pt dist = {
+              mag.x - vals[pos].x,
+              mag.y - vals[pos].y,
+              mag.z - vals[pos].z,
+            };
+            float distlen = sqrt(dist.x * dist.x + dist.y * dist.y + dist.z * dist.z);
+            if (distlen < min_dist) {
+              min_dist2 = min_dist;
+              min_dist = distlen;
+              min_pos2 = min_pos;
+              min_pos = pos;
+            }
+          }
+
+          bool door_open = vals[min_pos].angle > 0.01;
+          bool door_open_changed = (door_open != id(door).state || !id(door_angle).has_state());
+          if (door_open_changed)
+            id(door).publish_state(door_open);
+
+          if (vals[min_pos].turns != id(key_lock_turns).state)
+            id(key_lock_turns).publish_state(vals[min_pos].turns);
+
+          if (door_open_changed || door_open) {
+            struct pt dist = {
+              vals[min_pos].x - vals[min_pos2].x,
+              vals[min_pos].y - vals[min_pos2].y,
+              vals[min_pos].z - vals[min_pos2].z,
+            };
+            float distlen = sqrt(dist.x * dist.x + dist.y * dist.y + dist.z * dist.z);
+            float angle = vals[min_pos].angle;
+
+            // Maybe send an alert if value is not between min_pos and min_pos2?
+            if ((min_pos2 == min_pos + 1 || min_pos2 == min_pos - 1) && min_dist < distlen && min_dist2 < distlen)
+              angle += (vals[min_pos2].angle - angle) * (1.0 - min_dist2 / distlen);
+
+            if (door_open_changed || (door_open && fabs(angle - id(door_angle).state) > 1.0))
+              id(door_angle).publish_state(angle);
+          }
+
+cover:
+  - id: door_latch
+    name: "Door latch"
+    device_class: door
+    platform: time_based
+    open_duration: 4s
+    open_action:
+      # Refuse to do anything if door already open or locked with the key
+      - if:
+          condition:
+            lambda: 'return id(key_lock_turns).state < 0.01 && id(door_angle).state < 2.0;'
+          then:
+            - script.stop: relatch_later
+            - output.turn_off: motor_latch
+            - output.turn_on: motor_unlatch
+            - script.execute: monitor_current
+            - script.execute: relatch_later
+          else:
+            - homeassistant.event:
+                event: esphome.latch_error_beep
+            - cover.stop: door_latch
+    close_duration: 6s
+    close_action:
+      - script.stop: relatch_later
+      - output.turn_off: motor_unlatch
+      - output.turn_on: motor_latch
+      - script.execute: monitor_current
+    stop_action:
+      - output.turn_off: motor_unlatch
+      - output.turn_off: motor_latch
+      - script.stop: monitor_current
+    has_built_in_endstop: false
+
+i2c:
+  sda: 21
+  scl: 22
+  scan: true
+  frequency: 100kHz
+
+sensor:
+  - name: "Unlatch motor current"
+    id: motor_current
+    update_interval: never
+    internal: true
+    platform: adc
+    pin: 35 # Also on pin 2 (ADC2-2), but ADC2 can't be used together with Wi-Fi
+    attenuation: 0db # 0V - 1.1V for a 2 Amps range
+    unit_of_measurement: 'A'
+    filters:
+      - calibrate_linear:
+          # I = V / R, R = 0.6 Ohm, 0.6 V --> 1 Amp
+          - 0 -> 0
+          - 0.6 -> 1
+    on_value_range:
+      above: 0.5
+      then:
+        # Use a lambda instead so we can make the cover publish a fully open or closed position
+        - lambda: |-
+            auto latch = id(door_latch);
+            bool set_open = (latch->current_operation == COVER_OPERATION_OPENING);
+            bool set_closed = (latch->current_operation == COVER_OPERATION_CLOSING);
+
+            auto call = latch->make_call();
+            call.set_command_stop();
+            call.perform();
+
+            /*
+             * Seems there's no way around stop() publishing the intermediate position but
+             * we publish the final position anyway.
+             */
+            if (set_open) {
+              latch->position = COVER_OPEN;
+              latch->publish_state();
+            } else if (set_closed) {
+              latch->position = COVER_CLOSED;
+              latch->publish_state();
+            }
+        - cover.stop: door_latch
+
+  - platform: hmc5883l
+    update_interval: 1s
+    range: 810uT
+    oversampling: 8x
+    address: 0x1e
+    field_strength_x:
+      id: mag_x
+      internal: yes
+    field_strength_y:
+      id: mag_y
+      internal: yes
+    field_strength_z:
+      id: mag_z
+      internal: yes
+      on_raw_value:
+        then:
+          - script.execute: mag_field_update
+  - platform: bmp085
+    temperature:
+      name: "Door lock temperature"
+      filters:
+        - sliding_window_moving_average:
+            window_size: 16
+            send_every: 8
+            send_first_at: 8
+        - offset: -2.0
+        - delta: 0.5
+    pressure:
+      name: "Door lock QFE"
+      filters:
+        - sliding_window_moving_average:
+            window_size: 16
+            send_every: 8
+            send_first_at: 8
+        - delta: 1.0
+    update_interval: 8s
+    address: 0x77
+
+  - name: "Key lock turns"
+    id: key_lock_turns
+    platform: template
+    icon: 'mdi:key-variant'
+    accuracy_decimals: 0
+  - name: "Door angle"
+    id: door_angle
+    platform: template
+    icon: 'mdi:angle-acute'
+    unit_of_measurement: 'º'
+    accuracy_decimals: 1
+
+  - name: "Door node signal"
+    platform: wifi_signal
+    filters:
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 16
+          send_first_at: 8
+      - delta: 1
+    update_interval: 1min
+  - name: "Door node uptime"
+    platform: uptime
+    update_interval: 1h
+
+binary_sensor:
+  - name: "Door"
+    id: door
+    platform: template
+    device_class: door
+    # If the motor is currently unlatching the door or has stopped and is inside the timeout to start
+    # latching the door again, and we've detected the door moving that implies the unlatch has
+    # already happened and we can skip the wait and start re-latching right now.
+    on_press:
+      if:
+        condition:
+          script.is_running: relatch_later
+        then:
+          # Automatically stops relatch_later or an ongoing unlatch
+          - cover.close: door_latch
+
+  - name: "Hall switch A"
+    platform: gpio
+    internal: yes # Internal because the light switch is also connected to the hall node, don't want the same entity on both nodes
+    pin:
+      number: 26
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+
+text_sensor:
+  - name: "Door node version"
+    platform: version

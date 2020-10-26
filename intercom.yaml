@@ -1,0 +1,505 @@
+# vim: et:ts=2:sw=2
+#
+# short term TODO:
+#       reset handling <--- needs a big cap??? it seems the only problem is the sagging voltage.. maybe the whole PS is bonkers, should try a different one
+#          if we can move the pickup detection away from using 12V perhaps
+#       might need to FIX pickup detection, too fragile..
+#          add a cap?? maybe add a cap directly on the line, not at the pin (why? better at the pin actually)
+#          add a diode from outside to inside?? adjust the resistors? which way? we seem to be having errors in both directions
+#          we need like a High Pass Filter
+#
+#          could use a pull DOWN instead of pull UP... but how would we get the voltage in the right range for the input pin?
+#       long-term: re-do the whole board for the pickup detection and silencing ringing at the high side...
+#       once we have proper pickup detection, could finally connect white cable to the LM386 output too, or add a second LM386???
+#       long-term: port that audio code, figure out how we wanna send Hermes stuff over the esphome protocol instead of mqtt? and how to do that from HA
+#       post the tutorial
+#         https://github.com/esphome/feature-requests/issues/599#issuecomment-710035413
+#         https://github.com/esphome/esphome/pull/1071
+#
+# gpio 27: (input) 4.7k to GND, 10k to yellow, 4.7uF cap to GND
+# gpio 25: to leg 3 (INPUT) of LM386N-1 (7 to 47uF to GND, 6 to 5V/12V and to 47uF to GND, 470uF to red and to 0.047uF cap to GND)
+# gpio 32: N-channel gate, source to GND, drain to yellow, 4.7k to GND
+# gpio 12/TDI: N-channel gate, source to GND, drain to intercom GND, 4.7k to GND
+# gpio 17: N-channel gate, source to GND, drain to an 100Ohm resistor to red, TODO: do we need a pulldown here as well?? yep..
+# gpio  4: (input) 1k to GND, 2k to green and to 1k to 12V
+# gpio 17: N-channel gate and 4.7k to GND, source to GND, drain to relay coil 1
+# gpio 22: on-board green LED to GND
+# gpio 21: N-channel gate and 4.7k to GND, source to GND, drain to relay coil 2
+#
+# https://www.circuit-diagram.org/editor/c/e6e4eab9232c460794cd9eea00712de5
+#
+# https://www.youtube.com/watch?v=4ObzEft2R_g
+# https://www.ti.com/lit/ds/symlink/lm386.pdf
+#
+# TODO: redo the whole board without the GND to GND mosfet, instead use the P-chan design we pondered where only red+ is switchable
+#       with an Amp too
+#       can we use one of the opto-isolated mosfets to do high-side driving??
+#
+# 5-wire intercom connectors:
+#   white  phone speaker+
+#   green  phone mic+
+#   yellow open door signal-
+#   blue   gnd
+#   red    bell+
+#
+# cable female board male comes from outside
+# cable male board female comes from inside
+#
+# hall node 6-wire connector:
+#   white CT-
+#   green CT+
+#
+# relay 3-wire connector:
+#   white   5V+
+#   green   coil 1-
+#   green   coil 2-
+#
+# 1 <--- bell/speaker when hanged, else NC  -- red
+# 5 <--- speaker when unhanged, else NC     -- white
+# 4 <--- mic when unhanged, else NC         -- green
+# 3 <--- button press (full-press)          -- yellow  (shorted to GND on button press i.e. open the door)
+# 2 <--- ground                             -- blue
+#        unconnected                        -- grey
+#
+# con telefonillo descolgado: recheck all
+# white - blue = 18 Ohm
+# green - blue = 1072 Ohm
+# (white - green = 1090 Ohm)
+# con telefonillo colgado:
+# red - blue  = 18 Ohm
+#
+esphome:
+  name: intercom
+  platform: ESP32
+  board: ttgo-t7-v13-mini32
+  on_boot:
+    priority: 700
+    then:
+    - output.turn_off: hall_socket_coil_1
+    - output.turn_off: hall_socket_coil_2
+    - output.turn_off: dummy_load
+    - output.turn_on: gnd_enabled
+    - output.turn_on: green_led
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid1
+      password: !secret wifi_password
+    - ssid: !secret wifi_ssid2
+      password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 10.0.5.14
+    gateway: 10.0.6.1
+    subnet: 255.255.252.0
+    dns1: 10.0.6.1
+    dns2: 8.8.8.8
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Intercom Fallback Hotspot"
+    password: !secret ap_password
+    ap_timeout: 2min
+
+  # Work around the GPIO36 issue (?? add link)
+  power_save_mode: none
+
+# Disable logging
+logger:
+  baud_rate: 0
+
+# Enable Home Assistant API
+api:
+  reboot_timeout: 0s
+  services:
+    - service: alarm
+      then:
+        - script.execute: ring_alarm
+    - service: error_beep
+      then:
+        - script.execute: error_beep
+
+ota:
+  password: !secret ota_password
+
+web_server:
+  port: 80
+
+interval:
+  - interval: 1s
+    then:
+      if:
+        condition:
+          wifi.connected:
+        then:
+          - output.turn_on: green_led
+          - delay: 50ms
+          - output.turn_off: green_led
+        else:
+          - output.turn_off: green_led
+          - delay: 250ms
+          - output.turn_on: green_led
+
+script:
+  - id: short_beep
+    then:
+      - output.turn_on: speaker_gpio
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 1000Hz
+      - output.set_level:
+          id: speaker_gpio
+          level: 50%
+      - delay: 500ms
+      #- output.turn_off: speaker_gpio
+      - output.set_level:
+          id: speaker_gpio
+          level: 0%
+  - id: ring_alarm
+    then:
+      - script.execute: short_beep
+      - delay: 1s
+      - script.execute: short_beep
+      - delay: 1s
+      - script.execute: short_beep
+      - delay: 1s
+      - script.execute: short_beep
+      - delay: 1s
+      - script.execute: short_beep
+  - id: error_beep
+    then:
+      - output.turn_on: speaker_gpio
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 500Hz
+      - output.set_level:
+          id: speaker_gpio
+          level: 50%
+      - delay: 250ms
+      - output.turn_off: speaker_gpio
+      - delay: 100ms
+      - output.turn_on: speaker_gpio
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 300Hz
+      - delay: 250ms
+      #- output.turn_off: speaker_gpio
+      - output.set_level:
+          id: speaker_gpio
+          level: 0%
+  - id: beep_up
+    then:
+      - output.turn_on: speaker_gpio
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 600Hz
+      - output.set_level:
+          id: speaker_gpio
+          level: 50%
+      - delay: 100ms
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 650Hz
+      - delay: 100ms
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 700Hz
+      - delay: 100ms
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 750Hz
+      - delay: 100ms
+      #- output.turn_off: speaker_gpio
+      - output.set_level:
+          id: speaker_gpio
+          level: 0%
+  - id: beep_down
+    then:
+      - output.turn_on: speaker_gpio
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 750Hz
+      - output.set_level:
+          id: speaker_gpio
+          level: 50%
+      - delay: 100ms
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 700Hz
+      - delay: 100ms
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 650Hz
+      - delay: 100ms
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 600Hz
+      - delay: 100ms
+      #- output.turn_off: speaker_gpio
+      - output.set_level:
+          id: speaker_gpio
+          level: 0%
+  - id: intercom_press_always
+    then:
+    # on call end -- means either the door was opened (remotely or by button press) or call timed out (but that happens after longer than 30s)
+    #  kill intercom_press_ratelimit
+    # or:
+    #  on phone pick up:
+    #    kill script
+    #  on remote open:
+    #    kill script
+    #  on remote silence or power down:
+    #    kill script
+  - id: intercom_press_ratelimit
+    then:
+    - script.execute: unhandled_call_alert
+    - homeassistant.service:
+        service: persistent_notification.create
+        data:
+          title: Someone rang the intercom
+          message: An intercom call is active
+          notification_id: intercom_call
+    - delay: 2min
+  - id: intercom_call_end
+    then:
+    - homeassistant.service:
+        service: persistent_notification.dismiss
+        data:
+          notification_id: intercom_call
+  - id: unhandled_call_alert
+    then:
+    - delay: 30s
+    - homeassistant.service:
+        service: persistent_notification.create
+        data:
+          title: Someone rang the intercom
+          message: An intercom call has been unanswered for 30s
+    - homeassistant.service:
+        service: notify.alarm_email
+        data:
+          title: 'Apartment notification: Someone rang the intercom'
+          message: An intercom call has been unanswered for 30s.  Further emails of this type will be suppressed for 2 mins.
+
+switch:
+  - name: "Door unlock signal"
+    id: unlock
+    icon: 'mdi:door-open'
+    on_turn_on:
+      then:
+      - script.stop: unhandled_call_alert
+      - delay: 1s
+      - switch.turn_off: unlock
+    on_turn_off:
+      then:
+      - delay: 200ms
+      - if:
+          condition:
+            and:
+            - switch.is_off: unlock
+            - binary_sensor.is_off: call_active_raw
+            - binary_sensor.is_on: call_active
+          then:
+          - binary_sensor.template.publish:
+              id: call_active
+              state: off
+    platform: gpio
+    pin: 32
+    restore_mode: ALWAYS_OFF
+  - name: "Intercom silenced"
+    icon: 'mdi:volume-off'
+    id: silenced
+    platform: template
+    turn_on_action:
+      then:
+      - output.turn_off: gnd_enabled
+      - if:
+          condition:
+            switch.is_on: disconnected
+          then:
+          - output.turn_off: dummy_load
+          else:
+          - output.turn_on: dummy_load
+      - script.stop: unhandled_call_alert
+    turn_off_action:
+      then:
+      - output.turn_off: dummy_load
+      - if:
+          condition:
+            switch.is_on: disconnected
+          then:
+          - output.turn_off: gnd_enabled
+          else:
+          - output.turn_on: gnd_enabled
+      - script.stop: unhandled_call_alert
+    optimistic: yes
+    # restore_mode: ALWAYS_OFF
+  - name: "Intercom disconnected"
+    icon: 'mdi:connection'
+    id: disconnected
+    platform: template
+    turn_on_action:
+      then:
+      - output.turn_off: gnd_enabled
+      - output.turn_off: dummy_load
+      - script.stop: unhandled_call_alert
+    turn_off_action:
+      then:
+      - if:
+          condition:
+            switch.is_on: silenced
+          then:
+          - output.turn_off: gnd_enabled
+          - output.turn_on: dummy_load
+          else:
+          - output.turn_off: dummy_load
+          - output.turn_on: gnd_enabled
+      - script.stop: unhandled_call_alert
+    optimistic: yes
+    # restore_mode: ALWAYS_OFF
+  - name: "Hall socket"
+    platform: template
+    turn_on_action:
+      then:
+      - output.turn_off: hall_socket_coil_2
+      - output.turn_on: hall_socket_coil_1
+      - delay: 40ms
+      - output.turn_off: hall_socket_coil_1
+    turn_off_action:
+      then:
+      - output.turn_off: hall_socket_coil_1
+      - output.turn_on: hall_socket_coil_2
+      - delay: 40ms
+      - output.turn_off: hall_socket_coil_2
+    # TODO: add a big cap at 5v?
+    optimistic: yes
+    restore_state: no ##
+
+output:
+  - id: speaker_gpio
+    platform: ledc
+    pin: 25
+    ##restore_mode: ALWAYS_OFF
+    ### TODO: set up the DAC on this pin
+    # TODO: set the gnd mosfet as power supply
+  - id: gnd_enabled
+    platform: gpio
+    pin: 12
+    #restore_mode: ALWAYS_OFF
+  - id: dummy_load
+    platform: gpio
+    pin: 17
+    #restore_mode: ALWAYS_OFF
+  - id: hall_socket_coil_1
+    platform: gpio
+    pin: 16
+  - id: hall_socket_coil_2
+    platform: gpio
+    pin: 21
+  - id: green_led
+    platform: ledc
+    pin: 22
+
+binary_sensor:
+  - name: "Call active raw"
+    id: call_active_raw
+    #icon: 'mdi:phone-ring'
+    device_class: vibration
+    platform: gpio
+    pin:
+      number: 27
+      mode: INPUT_PULLDOWN # Note we have an external pulldown in the voltage divider already
+    internal: yes
+    # This is part of the logic to avoid call_active changing to false for the period when we're
+    # commanded to send the unlock signal (programatically).  The other part of the logic is in
+    # unlock.on_turn_off.  When the user physically presses the unlock button, we don't try
+    # to delay the call_active transition to false because that's the only way we can detect
+    # button presses in the logs later... could work on an elaborate set of actions/conditions
+    # that would keep call_active true, while automatically setting unlock true for those
+    # periods, based on the how long the calls are (30 seconds or so?)
+    # TODO: once phone_unhooked works during the call, just delay this for 5s as long as phone
+    # is up
+    filters:
+      delayed_on_off: 100ms
+    on_press:
+      if:
+        condition:
+          binary_sensor.is_off: call_active
+        then:
+        - binary_sensor.template.publish:
+            id: call_active
+            state: on
+    on_release:
+      then:
+      # If the call was shorter than 30s probably there was no call, only noise on the line.. remove this once no longer needed
+      - script.stop: unhandled_call_alert
+      - if:
+          condition:
+            switch.is_off: unlock
+          then:
+          ### TODO: check if phone_up is down and has been down for the last 1s... if so, delay 5s and only set call_active off if the call_active_raw is still off
+          - binary_sensor.template.publish:
+              id: call_active
+              state: off
+  - name: "Call active"
+    id: call_active
+    #icon: 'mdi:phone-ring'
+    device_class: vibration
+    platform: template
+    on_press:
+      if:
+        # TODO: don't execute anything if this had been released in less than 3s
+        condition:
+          script.is_running: intercom_press_ratelimit
+        then:
+        - script.execute: intercom_press_always
+        else:
+        - script.execute: intercom_press_always
+        - script.execute: intercom_press_ratelimit
+    on_release:
+      then:
+      - script.execute: intercom_call_end
+      - if:
+          condition:
+            binary_sensor.is_off: phone_up
+          then:
+          - script.execute: beep_down
+  - name: "Phone unhooked"
+    id: phone_up
+    #icon: 'mdi:phone-in-talk'
+    device_class: presence
+    ### occupancy??
+    platform: gpio
+    # Actually connected to the mic which is just 18Ohm to GND so it'll pull the signal down
+    # The mic is disconnected when the phone is hung
+    # TODO: do the same trick: OR this with open door signal, with delays... sure? rethink
+    pin:
+      number: 4
+      mode: INPUT_PULLUP
+      inverted: yes
+    filters:
+    - delayed_on: 100ms
+    - delayed_off: 200ms
+    on_press:
+      then:
+      - script.execute: beep_up
+      - script.stop: unhandled_call_alert
+    on_release:
+      script.execute: beep_down
+
+sensor:
+  - name: "Intercom node signal"
+    platform: wifi_signal
+    filters:
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 16
+          send_first_at: 8
+      - delta: 1
+    update_interval: 1min
+  - name: "Intercom node uptime"
+    platform: uptime
+    update_interval: 1h
+
+text_sensor:
+  - name: "Intercom node version"
+    platform: version
