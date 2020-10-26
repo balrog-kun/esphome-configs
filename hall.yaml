@@ -1,0 +1,529 @@
+# vim: et:ts=2:sw=2
+#
+# TODO: more motion detect automation
+# TODO: connect up the CS5640A's and the voltage tranformer..
+#
+#                                        3V                 GND
+#                                        EN               (1)TX - SSR1 (BTRM extractor - red)
+#        (white) BTRM SW (121,4700GND) - VP(36)           (3)RX - SSR2 (doorbell)
+#        (white) Hall SW (300,4700GND) - VN(39)              3V - to thin blue on the 3 6-wire cables
+#       (white) BTRM2 SW (270,4700GND) - 32                  22 - SCL to BME280
+#       (green) BTRM1 SW (300,4700GND) - 33                  21 - SDA to BME280
+#     (yellow) BTRM Door (300,4700GND) - 34                 GND
+#                LDR to 5V, 10K to GND - 35                 GND
+#                                  PIR - 25     Lolin D32    19 - MISO to CS5460A's SDO
+#                   Doorbell Btn 5V PS - 26                  23 - MOSI to CS5460A's SDI
+#           (btrm3 light) 12V Mosfet 4 - 27                  18 - SCK to CS5460A's SCLK
+#           (btrm1 light) 12V Mosfet 3 - 14                   5 - 30A relay 4 (bathroom)
+#           (btrm2 light) 12V Mosfet 2 - 12                  3V
+#            (hall light) 12V Mosfet 1 - 13                  17 - 30A relay 3 (main)
+#                                        5V                  16 - 30A relay 2 (kitchen)
+#                                        GND                  4 - CS5460A 1's CS (kitchen?)            2500 turns, 91 burden, IIN- at 2.5V (1K to +, 1K to GND)
+#                                                             0 - CS5460A 2's CS (main?)               2500 turns, 91 burden, IIN- at 2.5V (1K to +, 1K to GND)
+#                                                           GND
+#                                                             2 - CS5460A 3's CS (bathroom?)           2500 turns, 91 burden, IIN- at 2.5V (1K to +, 1K to GND)
+#                                                            15 - CS5460A 4's CS (hall? white & green) 2500 turns, 91 burden, IIN- at 2.5V (1K to +, 1K to GND)
+#
+# Screw terminal pinout from left to right (+ is L, - is N):
+#   Kitchen + out
+#   Kitchen + in
+#   Main + in
+#   Main + out
+#   Main -
+#   Bathroom socket + out
+#   NC
+#   Doorbell + out
+#   5V + out for the hall switches and door lock motor+esp32
+#   5V&12V - (GND) in/out
+#   12V Hall light - out
+#   12V Bathroom light 1 - out
+#   12V Bathroom light 2 - out
+#   12V Bathroom mirror light - out
+#   Doorbell switch + in
+#
+# 6-wire cables:
+#   To breaker box:
+#     white CT-
+#     green CT+
+#     yellow NC
+#     blue NC
+#     gray NC
+#     red NC
+#   To bathroom
+#     white mirrorside switch in (pulled down)
+#     green 5V + out
+#     yellow NC 12V mosfet reserved for an extra light?
+#     blue 3.3V from ESP32
+#     gray NC
+#     red extractor + out
+#   To bathroom door switches box:
+#     white bathroom light 2 switch in (pulled down)
+#     green bathroom light 1 switch in (pulled down)
+#     yellow bathroom door sensor in (high when door open, pulled down)
+#     blue 3.3V from ESP32
+#     gray NC
+#     red NC
+#   To hall switch/door lock node:
+#     white hall light switch in (pulled down)
+#     green NC
+#     yellow NC
+#     blue 3.3V from ESP32
+#     gray NC
+#     red NC
+#
+# Bathroom thick cable colours:
+#   blue bathroom socket & extractor - out
+#   black 1 bathroom socket + out
+#   brown 1 12V bathroom light 1 - out
+#   brown 2 12V bathroom light 2 - out
+#   red 12V bathroom light common + out
+#   black 2 12V bathroom mirror light - out
+#   green/yellow mains ground
+#
+# PIR cable:
+#   GND
+#   pin 25
+#   5V
+#   pin 35 + 10K to GND
+#
+esphome:
+  name: hall
+  platform: ESP32
+  board: lolin32
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid1
+      password: !secret wifi_password
+    - ssid: !secret wifi_ssid2
+      password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 10.0.5.13
+    gateway: 10.0.6.1
+    subnet: 255.255.252.0
+    dns1: 10.0.6.1
+    dns2: 8.8.8.8
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Hall Fallback Hotspot"
+    password: !secret ap_password
+    ap_timeout: 2min
+
+  # Work around the GPIO36 issue
+  power_save_mode: none
+
+# Enable logging
+logger:
+  baud_rate: 0
+
+# Enable Home Assistant API
+api:
+  reboot_timeout: 0s
+  services:
+    - service: alarm
+      then:
+        - script.execute: ring_alarm
+
+ota:
+  password: !secret ota_password
+
+web_server:
+  port: 80
+
+globals:
+  - id: hall_light_night
+    type: bool
+    initial_value: 'false'
+  - id: hall_light_night_restore_val
+    type: float
+
+switch:
+  - name: "Kitchen area power"
+    platform: gpio
+    pin: 16
+    restore_mode: ALWAYS_ON
+  - name: "Main area power"
+    platform: gpio
+    pin: 17
+    restore_mode: ALWAYS_ON
+  - name: "Bathroom socket power"
+    platform: gpio
+    pin:
+      number: 5
+      inverted: yes
+  - name: "Bathroom extractor"
+    icon: 'mdi:air-conditioner'
+    id: bathroom_extractor
+    platform: gpio
+    pin: 1
+    restore_mode: ALWAYS_OFF
+  - name: "Doorbell"
+    icon: 'mdi:bell'
+    id: doorbell
+    platform: gpio
+    pin: 3
+    restore_mode: ALWAYS_OFF
+  - name: "Doorbell silenced"
+    icon: 'mdi:volume-off'
+    id: doorbell_silenced
+    platform: template
+    optimistic: yes
+    restore_state: yes
+
+output:
+  - id: hall_light_gpio
+    platform: ledc
+    pin: 13
+  - id: bathroom_light_gpio1
+    platform: ledc
+    pin: 14
+  - id: bathroom_light_gpio2
+    platform: ledc
+    pin: 12
+  - id: bathroom_light_gpio3
+    platform: ledc
+    pin: 27
+
+light:
+  - name: "Hall light"
+    id: hall_light
+    output: hall_light_gpio
+    platform: monochromatic
+  - name: "Bathroom lights 1"
+    id: bathroom_light1
+    output: bathroom_light_gpio1
+    platform: monochromatic
+  - name: "Bathroom lights 2"
+    id: bathroom_light2
+    output: bathroom_light_gpio2
+    platform: monochromatic
+  - name: "Bathroom mirror lights"
+    #icon: 'mdi:string-lights'
+    id: bathroom_light3
+    output: bathroom_light_gpio3
+    platform: monochromatic
+
+script:
+  - id: doorbell_press_always
+    # TODO: further optimize...
+    then:
+      - if:
+          condition:
+            switch.is_off: doorbell_silenced
+          then:
+            - switch.turn_on: doorbell
+            - delay: 400ms
+            - switch.turn_off: doorbell
+      - homeassistant.service:
+          service: persistent_notification.create
+          data:
+            title: Someone rang the doorbell
+            message: The doorbell button was pressed just now
+  - id: doorbell_press_ratelimit
+    then:
+      - delay: 200ms
+      # TODO: skip the notifications if door opened within 30 seconds
+      - homeassistant.service:
+          service: notify.alarm_email
+          data:
+            title: 'Apartment notification: Someone rang the doorbell'
+            message: The doorbell button was pressed just now.  Further emails of this type will be suppressed for 5 mins.
+      - delay: 5min
+  - id: on_door_open
+    then:
+      # TODO: restre old extractor state, don't turn off blindly
+      - switch.turn_off: bathroom_extractor
+      # TODO: restore light1 state
+  - id: on_door_close
+    then:
+      - if:
+          condition:
+            # TODO: check all three lights when connected
+            light.is_off: bathroom_light2
+          then:
+            - light.turn_on: bathroom_light1
+      - delay: 10s
+      - switch.turn_on: bathroom_extractor
+  - id: ring_alarm
+    then:
+      - if:
+          condition:
+            not:
+              script.is_running: ring_alarm
+          then:
+            - light.toggle: hall_light
+            - light.toggle: bathroom_light1
+            - light.toggle: bathroom_light2
+            - light.toggle: bathroom_light3
+            - switch.turn_on: doorbell
+            - delay: 400ms
+            - light.toggle: hall_light
+            - light.toggle: bathroom_light1
+            - light.toggle: bathroom_light2
+            - light.toggle: bathroom_light3
+            - switch.turn_off: doorbell
+            - delay: 1s
+            - light.toggle: hall_light
+            - light.toggle: bathroom_light1
+            - light.toggle: bathroom_light2
+            - light.toggle: bathroom_light3
+            - delay: 400ms
+            - light.toggle: hall_light
+            - light.toggle: bathroom_light1
+            - light.toggle: bathroom_light2
+            - light.toggle: bathroom_light3
+            - delay: 1s
+            - light.toggle: hall_light
+            - light.toggle: bathroom_light1
+            - light.toggle: bathroom_light2
+            - light.toggle: bathroom_light3
+            - delay: 400ms
+            - light.toggle: hall_light
+            - light.toggle: bathroom_light1
+            - light.toggle: bathroom_light2
+            - light.toggle: bathroom_light3
+
+binary_sensor:
+  - name: "Hall switch"
+    on_state:
+      #then:
+      #- light.toggle: hall_light
+      then:
+      - lambda: |-
+          auto l = id(hall_light);
+          auto is_off = [](light::LightState *ls) {
+            light::LightColorValues vals = ls->remote_values;
+            return !vals.is_on() || vals.get_brightness() < 0.14f;
+          };
+
+          if (is_off(l) || id(hall_light_night)) {
+            auto call = l->turn_on();
+            call.set_brightness(1.0f);
+            call.set_transition_length(1000);
+            call.perform();
+            id(hall_light_night) = false;
+          } else if (id(hall_kitchen_motion).state > 0.0f && id(hall_brightness).state < 0.5f) {
+            id(hall_light_night_restore_val) = l->remote_values.get_brightness();
+            l->turn_off().perform(); // Do this to force the off state being published
+            auto call = l->turn_on();
+            call.set_brightness(0.14f);
+            call.set_save(false);
+            call.set_publish(false);
+            // Longer times need the gamma or min_power to be set correctly at this brightness level...
+            call.set_transition_length(300);
+            call.perform();
+            id(hall_light_night) = true;
+          } else {
+            l->turn_off().perform();
+            id(hall_light_night) = false;
+          }
+
+    platform: gpio
+    pin:
+      number: 39
+      # Is there even a pulldown on this pin?
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Bathroom entrance switch 1"
+    on_state:
+      if:
+        condition:
+          # Is the bathroom door open?
+          binary_sensor.is_on: bathroom_door
+        then:
+          - light.toggle: bathroom_light1
+        else:
+          - light.toggle: hall_light
+          - homeassistant.event:
+              event: esphome.light_error_beep
+          - delay: 700ms
+          - light.toggle: hall_light
+    platform: gpio
+    pin:
+      number: 33
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Bathroom entrance switch 2"
+    on_state:
+      if:
+        condition:
+          # Is the bathroom door open?
+          binary_sensor.is_on: bathroom_door
+        then:
+          - light.toggle: bathroom_light2
+        else:
+          - light.toggle: hall_light
+          - homeassistant.event:
+              event: esphome.light_error_beep
+          - delay: 700ms
+          - light.toggle: hall_light
+    platform: gpio
+    pin:
+      number: 32
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Bathroom mirrorside switch"
+    on_state:
+      then:
+      - light.toggle: bathroom_light3
+    on_click:
+    - min_length: 50ms
+      max_length: 600ms
+      then:
+      - light.toggle: bathroom_light1
+    - min_length: 600ms
+      max_length: 1500ms
+      then:
+      - light.toggle: bathroom_light2
+    - min_length: 1500ms
+      max_length: 2500ms
+      then:
+      - switch.toggle: bathroom_extractor
+    platform: gpio
+    pin:
+      # Is there even a pulldown on this pin?
+      number: 36
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Bathroom door"
+    id: bathroom_door
+    device_class: door
+    platform: gpio
+    pin:
+      # Is there even a pulldown on this pin?
+      number: 34
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+    on_press:
+      then:
+        - script.stop: on_door_open
+        - script.stop: on_door_close
+        - script.execute: on_door_open
+    on_release:
+      then:
+        - script.stop: on_door_open
+        - script.stop: on_door_close
+        - script.execute: on_door_close
+  - name: "Doorbell switch"
+    #icon: 'mdi:doorbell'
+    platform: gpio
+    pin:
+      number: 26
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+    on_press:
+      if:
+        condition:
+          script.is_running: doorbell_press_ratelimit
+        then:
+          - script.execute: doorbell_press_always
+        else:
+          - script.execute: doorbell_press_always
+          - script.execute: doorbell_press_ratelimit
+  - name: "Hall-kitchen motion"
+    id: hall_kitchen_motion
+    device_class: motion
+    platform: gpio
+    pin:
+      # Looks like the pulldown is necessary for the HC-SR501 sensor here
+      # (for some reason it isn't for the HC-SR501 connected to the living
+      # room node), and the AM312 won't work at all with or without the
+      # pulldown.
+      number: 25
+      mode: INPUT_PULLDOWN
+    # Not the greatest solution, but should work for now
+    # Note automations.yaml is based on this value and needs to change
+    # whenever this changes
+    filters:
+      delayed_off: 5s
+    on_press:
+      then:
+        - lambda: |-
+            auto l = id(hall_light);
+            auto is_off = [](light::LightState *ls) {
+              light::LightColorValues vals = ls->remote_values;
+              return !vals.is_on() || vals.get_brightness() < 0.14f;
+            };
+
+            if (is_off(l) &&
+                !id(hall_light_night) &&
+                id(hall_brightness).state < 0.5f) {
+              id(hall_light_night_restore_val) = l->remote_values.get_brightness();
+              auto call = l->turn_on();
+              call.set_brightness(0.14f);
+              call.set_save(false);
+              call.set_publish(false);
+              // Longer times need the gamma or min_power to be set correctly at this brightness level...
+              call.set_transition_length(300);
+              call.perform();
+              id(hall_light_night) = true;
+            }
+    on_release:
+      then:
+        - lambda: |-
+            auto l = id(hall_light);
+            if (id(hall_light_night) && l->remote_values.get_brightness() == 0.14f) {
+              auto call = l->turn_off();
+              // needs to be done as a separate operation when this transition ends,
+              // otherwise is messes up the fade-out
+              // call.set_brightness(id(hall_light_night_restore_val));
+              call.set_save(false);
+              call.set_publish(false);
+              call.set_transition_length(3000);
+              call.perform();
+            }
+            id(hall_light_night) = false;
+
+i2c:
+  sda: 21
+  scl: 22
+  scan: true
+  frequency: 100kHz
+
+sensor:
+  # Add the BME280 when ready
+  # Add the current sensors!
+  - name: "Hall brightness"
+    id: hall_brightness
+    icon: 'mdi:car-light-high'
+    platform: adc
+    pin: 35
+    attenuation: 11db # 0V - 3.9V
+    unit_of_measurement: '%'
+    accuracy_decimals: 0
+    filters:
+      - calibrate_linear:
+          - 0 -> 0
+          - 4 -> 100
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 16
+          send_first_at: 4
+      - delta: 1
+    update_interval: 3s
+
+  - name: "Hall node signal"
+    platform: wifi_signal
+    filters:
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 16
+          send_first_at: 8
+      - delta: 1
+    update_interval: 1min
+  - name: "Hall node uptime"
+    platform: uptime
+    update_interval: 1h
+# TODO: overcurrent triggers
+
+text_sensor:
+  - name: "Hall node version"
+    platform: version

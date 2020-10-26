@@ -1,0 +1,46 @@
+* Netlist created with www.circuit-diagram.org
+* Intercom node
+V1 0 0
+V2 1 0
+'polarisedcapacitor b:1 a:2 style=IEC text= capacitance=4.7E-05 showCapacitance=True t=Polarised
+V3 3 0
+'polarisedcapacitor b:3 style=IEC text= capacitance=4.7E-05 showCapacitance=True t=Polarised
+V4 4 0
+V5 5 0
+V6 2 6 12
+V7 10 0
+'polarisedcapacitor a:7 b:10 style=IEC text= capacitance=0.00022 showCapacitance=True t=Polarised
+R8 2 7 50
+V9 11 0
+R10 12 11 4700
+V11 13 0
+R12 14 13 4700
+'mosfetn gate:5 drn:8 t=NChannelMosfet
+'mosfetn gate:4 drn:9 t=NChannelMosfet
+V13 15 0
+C14 16 15 4.7E-08
+R15 17 18 100
+'mosfetn drn:18 src:19 gate:20 t=NChannelMosfet
+V16 21 0
+'schottkydiode an:16 cat:17 t=Schottky
+'polarisedcapacitor a:22 b:16 style=IEC text= capacitance=0.00047 showCapacitance=True t=Polarised
+'opamp vsn:0 vsp:2 ninv:23 inv:21 out:22 showSupply=True
+V17 6 0
+V18 24 0
+R19 25 24 1000
+R20 26 25 2000
+R21 27 25 1000
+V22 27 6 12
+V23 28 0
+'polarisedcapacitor a:29 b:28 style=IEC text= capacitance=4.7E-06 showCapacitance=True t=Polarised
+V24 30 0
+R25 29 30 4700
+R26 31 29 4700
+V27 32 0
+R28 33 32 4700
+'mosfetn drn:31 gate:20 src:33 t=NChannelMosfet
+V29 34 0
+R30 35 34 4700
+'mosfetn src:35 drn:36 gate:20 t=NChannelMosfet
+V31 20 0
+'microcontroller #15:2 #5:12 #7:14 #9:19 #4:23 #0:6 #10:25 #2:29 #6:33 #8:35 header=ESP32 sz=20 p0=GND p1=IO1/TXD p2=IO27 p3=IO3/RXD p4=IO25/DAC2 p5=IO22/SCL p6=IO32 p7=IO21/SDA p8=IO12/TDI p9=IO17 p10=IO4 p11=IO16 p12=IO0 p13=GND p14=IO2 p15=5V p16=IO8/SDI p17=IO15/TDO p18=IO6/CLK p19=IO7/SD0 p20= p21= p22= p23= p24= p25= p26= p27= p28= p29= p30= p31= p32= p33= p34= p35= p36= p37= p38= p39=

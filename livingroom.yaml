@@ -1,0 +1,553 @@
+# vim: et:ts=2:sw=2
+#
+# TODO: redo everything, use bistable relays (RT424F05 small and HFE10-1-12-HT-L2 big) and the CS5460A modules
+#
+esphome:
+  name: livingroom
+  platform: ESP32
+  board: lolin32
+
+  on_boot:
+    priority: -200
+    then:
+      - output.turn_on: mics5524_heater
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid1
+      password: !secret wifi_password
+    - ssid: !secret wifi_ssid2
+      password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 10.0.5.11
+    gateway: 10.0.6.1
+    subnet: 255.255.252.0
+    dns1: 10.0.6.1
+    dns2: 8.8.8.8
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Livingroom Fallback Hotspot"
+    password: !secret ap_password
+    ap_timeout: 2min
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  reboot_timeout: 0s
+  services:
+    - service: alarm
+      then:
+        - script.execute: ring_alarm
+
+ota:
+  password: !secret ota_password
+
+web_server:
+  port: 80
+
+switch:
+  # Bedroom light + bedroom2light node, the 3 wall sockets + 1 living room socket
+  - name: "Bedroom 2 power"
+    platform: gpio
+    pin: 5
+  - name: "Living room socket 1"
+    platform: gpio
+    pin: 18
+    restore_mode: ALWAYS_ON
+  - name: "Living room socket 2"
+    platform: gpio
+    pin:
+      number: 23
+      inverted: yes
+  - name: "Bedroom 1 sockets"
+    platform: gpio
+    pin:
+      number: 19
+      inverted: yes
+  - name: "Living room 12V"
+    platform: gpio
+    pin: 25
+
+output:
+  - id: lv_light_gpio1
+    platform: ledc
+    pin: 0
+  - id: lv_light_gpio2
+    platform: ledc
+    pin: 4
+  - id: lv_light_gpio3
+    platform: ledc
+    pin: 16
+  - id: lv_light_gpio4
+    platform: ledc
+    pin: 17
+  - id: lv_light_gpio5
+    platform: ledc
+    pin: 15
+  - id: bedroom1_light_gpio
+    platform: ledc
+    pin: 32
+  - id: mics5524_heater
+    platform: gpio
+    pin:
+      number: 33
+      inverted: true
+
+light:
+  - name: "Living room lights 1"
+    id: lv_light1
+    output: lv_light_gpio4
+    platform: monochromatic
+  - name: "Living room lights 2"
+    id: lv_light2
+    output: lv_light_gpio2
+    platform: monochromatic
+  - name: "Living room lights 3"
+    id: lv_light3
+    output: lv_light_gpio1
+    platform: monochromatic
+  - name: "Living room lights 4"
+    id: lv_light4
+    output: lv_light_gpio3
+    platform: monochromatic
+  - name: "Living room lights 5"
+    id: lv_light5
+    output: lv_light_gpio5
+    platform: monochromatic
+  - name: "Bedroom 1 light"
+    id: bedroom1_light
+    output: bedroom1_light_gpio
+    platform: monochromatic
+
+globals:
+  - id: lv_light_pos
+    type: int
+  - id: lv_light_power
+    type: int
+  - id: lv_light_night
+    type: bool
+  - id: lv_light_night_restore_val
+    type: float
+  - id: lv_lights_num
+    initial_value: '5'
+    type: int
+script:
+  - id: lv_light_update
+    then:
+      - lambda: |-
+          static light::LightState *lights[] = { id(lv_light1), id(lv_light2), id(lv_light3), id(lv_light4), id(lv_light5) };
+          bool on[] = { false, false, false, false, false };
+          int num = id(lv_lights_num);
+
+          for (int offset = 0; offset < id(lv_light_power); offset++) {
+            int pos = id(lv_light_pos) - id(lv_light_power) / 2 + offset;
+            int abs_pos = ((pos % num) + num) % num;
+            on[abs_pos] = true;
+          }
+
+          for (int i = 0; i < num; i++) {
+            auto vals = lights[i]->remote_values;
+
+            /* Don't use .toggle() */
+            if (on[i] && (!vals.is_on() || vals.get_brightness() < 0.6f)) {
+              auto call = lights[i]->turn_on();
+              call.set_brightness(1.0f);
+              call.set_transition_length(1000);
+              call.perform();
+            } else if (!on[i] && vals.is_on())
+              lights[i]->turn_off().perform();
+          }
+
+          id(lv_light_night) = false;
+
+  - id: ring_alarm
+    then:
+      - if:
+          condition:
+            not:
+              script.is_running: ring_alarm
+          then:
+            - light.toggle: lv_light1
+            - light.toggle: lv_light2
+            - light.toggle: lv_light3
+            - light.toggle: lv_light4
+            - light.toggle: lv_light5
+            - light.toggle: bedroom1_light
+            - delay: 400ms
+            - light.toggle: lv_light1
+            - light.toggle: lv_light2
+            - light.toggle: lv_light3
+            - light.toggle: lv_light4
+            - light.toggle: lv_light5
+            - light.toggle: bedroom1_light
+            - delay: 1s
+            - light.toggle: lv_light1
+            - light.toggle: lv_light2
+            - light.toggle: lv_light3
+            - light.toggle: lv_light4
+            - light.toggle: lv_light5
+            - light.toggle: bedroom1_light
+            - delay: 400ms
+            - light.toggle: lv_light1
+            - light.toggle: lv_light2
+            - light.toggle: lv_light3
+            - light.toggle: lv_light4
+            - light.toggle: lv_light5
+            - light.toggle: bedroom1_light
+            - delay: 1s
+            - light.toggle: lv_light1
+            - light.toggle: lv_light2
+            - light.toggle: lv_light3
+            - light.toggle: lv_light4
+            - light.toggle: lv_light5
+            - light.toggle: bedroom1_light
+            - delay: 400ms
+            - light.toggle: lv_light1
+            - light.toggle: lv_light2
+            - light.toggle: lv_light3
+            - light.toggle: lv_light4
+            - light.toggle: lv_light5
+            - light.toggle: bedroom1_light
+
+binary_sensor:
+  - name: "Living room switch A"
+    on_state:
+      then:
+        #- light.toggle: lv_light1
+        - lambda: |-
+            if (id(lv_light_power) < id(lv_lights_num))
+              id(lv_light_power)++;
+            id(lv_light_update).execute();
+    platform: gpio
+    pin:
+      number: 26
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Living room switch B"
+    on_state:
+      then:
+        #- light.toggle: lv_light2
+        - lambda: |-
+            if (id(lv_light_power) > 0)
+              id(lv_light_power)--;
+            id(lv_light_update).execute();
+    platform: gpio
+    pin:
+      number: 27
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Living room switch C"
+    on_state:
+      then:
+        #- light.toggle: lv_light3
+        - lambda: |-
+            id(lv_light_pos)++;
+            id(lv_light_update).execute();
+    platform: gpio
+    pin:
+      number: 14
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Living room switch D"
+    on_state:
+      then:
+        #- light.toggle: lv_light4
+        - lambda: |-
+            id(lv_light_pos)--;
+            id(lv_light_update).execute();
+    platform: gpio
+    pin:
+      number: 12
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Bedroom 1 switch A"
+    on_state:
+      then:
+        light.toggle: bedroom1_light
+    platform: gpio
+    pin:
+      number: 13
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Living room motion"
+    device_class: motion
+    platform: gpio
+    pin: 2
+    # Not the greatest solution, but should work for now
+    filters:
+      delayed_off: 5s
+    on_press:
+      then:
+        - lambda: |-
+            auto is_off = [](light::LightState *ls) {
+              light::LightColorValues vals = ls->remote_values;
+              return !vals.is_on() || vals.get_brightness() < 0.14f;
+            };
+
+            if (is_off(id(lv_light1)) && is_off(id(lv_light2)) && is_off(id(lv_light3)) &&
+                is_off(id(lv_light4)) && is_off(id(lv_light5)) &&
+                !id(lv_light_night) &&
+                id(living_room_brightness).state < 0.5f) {
+              id(lv_light_night_restore_val) = id(lv_light1).remote_values.get_brightness();
+              auto call = id(lv_light1)->turn_on();
+              call.set_brightness(0.14f);
+              call.set_save(false);
+              call.set_publish(false);
+              // Longer times need the gamma or min_power to be set correctly at this brightness level...
+              call.set_transition_length(300);
+              call.perform();
+              id(lv_light_night) = true;
+            }
+    on_release:
+      then:
+        - lambda: |-
+            if (id(lv_light_night) && id(lv_light1).remote_values.get_brightness() == 0.14f) {
+              auto call = id(lv_light1)->turn_off();
+              // needs to be done as a separate operation when this transition ends,
+              // otherwise is messes up the fade-out
+              // call.set_brightness(id(lv_light_night_restore_val));
+              call.set_save(false);
+              call.set_publish(false);
+              call.set_transition_length(3000);
+              call.perform();
+            }
+            id(lv_light_night) = false;
+
+i2c:
+  sda: 21
+  scl: 22
+  scan: true
+  frequency: 100kHz
+
+ads1115:
+  address: 0x48
+  continuous_mode: on #<-- broken if multiple channels used
+  id: ads1115_48
+
+sensor:
+  - platform: bme280
+    temperature:
+      name: "Living room ambient temperature"
+      id: bme280_temperature
+      filters:
+        - offset: -15.0
+        - delta: 0.2
+    pressure:
+      name: "Living room QFE"
+      id: bme280_pressure
+      filters:
+        - delta: 0.2
+    humidity:
+      name: "Living room relative humidity"
+      id: bme280_humidity
+      filters:
+        - delta: 0.2
+    address: 0x76
+    # default oversampling of 16x and interval of 60s
+  - name: "Living room QNH"
+    platform: template
+    unit_of_measurement: 'hPa'
+    icon: 'mdi:gauge'
+    lambda: |-
+      const float STANDARD_ALTITUDE = 630; // in meters
+      return id(bme280_pressure).state / powf(1 - ((0.0065 * STANDARD_ALTITUDE) /
+        (id(bme280_temperature).state + (0.0065 * STANDARD_ALTITUDE) + 273.15)), 5.257);
+    update_interval: 60s
+    filters:
+      - delta: 0.2
+  - platform: ccs811
+    eco2:
+      name: "Living room ambient eCO2"
+      filters:
+        - filter_out: 65021
+        - filter_out: 0
+        - delta: 1
+    tvoc:
+      name: "Living room total Volatile Organic Compound"
+      filters:
+        - filter_out: 65021
+        - delta: 1
+    temperature: bme280_temperature
+    humidity: bme280_humidity
+    address: 0x5a
+    ## eventually set to 60s as the sensor updates only every 60s anyway?? recheck
+    update_interval: 15s
+    baseline: 0x4489
+    ### TODO: alarm if eCO2 over 1500ppm?
+  - name: "Living room CO+Ethanol+H2+NH3+CH4"
+    id: mics5524_co
+    icon: 'mdi:fire'
+    platform: adc
+    pin: 34
+    attenuation: 6db # 0V - 2.2V for now
+    unit_of_measurement: 'ppm'
+    accuracy_decimals: 0
+    filters:
+      - sliding_window_moving_average:
+          window_size: 30
+          send_every: 15
+          send_first_at: 15
+      - calibrate_linear:
+          - 0 -> 0
+          - 5 -> 1000
+      - delta: 1
+    update_interval: 3s
+    # 70ppm is considered unsafe for CO
+    on_value_range:
+      above: 140
+      then:
+        - script.execute: ring_alarm
+        - text_sensor.template.publish:
+            id: living_room_alarm_text
+            #state: "High CO detected"
+            state: !lambda 'std::string v = to_string(id(mics5524_co).state); return "High CO detected: " + v + " ppm";'
+  - name: "ADS1115 Channel A0-GND"
+    id: ads1115_a0
+    ads1115_id: ads1115_48
+    multiplexer: 'A0_GND'
+    # eventually bump up!
+    gain: 4.096
+    platform: ads1115
+    update_interval: 10min
+  - name: "ADS1115 Channel A1-GND"
+    id: ads1115_a1
+    ads1115_id: ads1115_48
+    multiplexer: 'A1_GND'
+    # eventually bump up!
+    gain: 4.096
+    platform: ads1115
+    update_interval: never
+    internal: true
+  - name: "ADS1115 Channel A2-GND"
+    id: ads1115_a2
+    ads1115_id: ads1115_48
+    multiplexer: 'A2_GND'
+    # eventually bump up!
+    gain: 4.096
+    platform: ads1115
+    update_interval: never
+    internal: true
+  - name: "ADS1115 Channel A3-GND"
+    id: ads1115_a3
+    ads1115_id: ads1115_48
+    multiplexer: 'A3_GND'
+    # eventually bump up!
+    gain: 4.096
+    platform: ads1115
+    update_interval: never
+    internal: true
+    # All 4 sensors should measure ~2.55V + I / 2500 * 270 / 1.44 ?
+    # ... TODO: convert to power (W) ?
+  - name: "Living room socket 1 current"
+    sensor: ads1115_a0
+    platform: ct_clamp
+    sample_duration: 1000ms
+    filters:
+      - calibrate_linear:
+          - 0 -> 0
+          - 2.3328 -> 15
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 8
+          send_first_at: 8
+      - delta: 0.04
+    update_interval: 8s
+    accuracy_decimals: 2
+  - name: "Bedroom 1 sockets current"
+    sensor: ads1115_a1
+    platform: ct_clamp
+    sample_duration: 1000ms
+    filters:
+      - calibrate_linear:
+          - 0 -> 0
+          - 2.3328 -> 15
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 8
+          send_first_at: 8
+      - delta: 0.04
+    update_interval: 8s
+    accuracy_decimals: 2
+  - name: "Bedroom 2 current"
+    sensor: ads1115_a2
+    platform: ct_clamp
+    sample_duration: 1000ms
+    filters:
+      - calibrate_linear:
+          - 0 -> 0
+          - 2.3328 -> 15
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 8
+          send_first_at: 8
+      - delta: 0.04
+    update_interval: 8s
+    accuracy_decimals: 2
+  - name: "Living room socket 2 current"
+    sensor: ads1115_a3
+    platform: ct_clamp
+    sample_duration: 1000ms
+    filters:
+      - calibrate_linear:
+          - 0 -> 0
+          - 2.3328 -> 15
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 8
+          send_first_at: 8
+      - delta: 0.04
+    update_interval: 8s
+    accuracy_decimals: 2
+  - name: "Living room brightness"
+    id: living_room_brightness
+    icon: 'mdi:car-light-high'
+    platform: adc
+    pin: 35
+    attenuation: 11db # 0V - 3.9V
+    unit_of_measurement: '%'
+    accuracy_decimals: 0
+    filters:
+      - calibrate_linear:
+          - 0 -> 0
+          - 4 -> 100
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 16
+          send_first_at: 4
+      - delta: 1
+    update_interval: 3s
+
+  - name: "Living room node signal"
+    platform: wifi_signal
+    filters:
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 16
+          send_first_at: 8
+      - delta: 1
+    update_interval: 1min
+  - name: "Living room node uptime"
+    platform: uptime
+    update_interval: 1h
+  - name: "Living room node magnetic magnitude"
+    platform: esp32_hall
+    update_interval: 30min
+# TODO: overcurrent triggers
+# TODO: use the power supply setting for the bedroom2 light somehow? but we can't detect button press unless bedroom2 power is on...
+
+text_sensor:
+  - name: "Living room node version"
+    platform: version
+  - name: "Living room alarm reason"
+    platform: template
+    id: living_room_alarm_text
+    # TODO: auto reset to "" after a while?
