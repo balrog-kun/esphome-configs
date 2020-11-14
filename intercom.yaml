@@ -25,6 +25,7 @@
 # gpio 17: N-channel gate and 4.7k to GND, source to GND, drain to relay coil 1
 # gpio 22: on-board green LED to GND
 # gpio 21: N-channel gate and 4.7k to GND, source to GND, drain to relay coil 2
+# gpio  2: (input) 2x 1.3k to GND, 4.7k to red
 #
 # https://www.circuit-diagram.org/editor/c/e6e4eab9232c460794cd9eea00712de5
 #
@@ -80,6 +81,7 @@ esphome:
     - output.turn_off: dummy_load
     - output.turn_on: gnd_enabled
     - output.turn_on: green_led
+    - script.execute: speaker_gpio_off
 
 wifi:
   networks:
@@ -143,18 +145,12 @@ interval:
 script:
   - id: short_beep
     then:
-      - output.turn_on: speaker_gpio
+      - script.execute: speaker_gpio_on
       - output.ledc.set_frequency:
           id: speaker_gpio
           frequency: 1000Hz
-      - output.set_level:
-          id: speaker_gpio
-          level: 50%
       - delay: 500ms
-      #- output.turn_off: speaker_gpio
-      - output.set_level:
-          id: speaker_gpio
-          level: 0%
+      - script.execute: speaker_gpio_off
   - id: ring_alarm
     then:
       - script.execute: short_beep
@@ -168,34 +164,25 @@ script:
       - script.execute: short_beep
   - id: error_beep
     then:
-      - output.turn_on: speaker_gpio
+      - script.execute: speaker_gpio_on
       - output.ledc.set_frequency:
           id: speaker_gpio
           frequency: 500Hz
-      - output.set_level:
-          id: speaker_gpio
-          level: 50%
       - delay: 250ms
-      - output.turn_off: speaker_gpio
+      - script.execute: speaker_gpio_off
       - delay: 100ms
-      - output.turn_on: speaker_gpio
+      - script.execute: speaker_gpio_on
       - output.ledc.set_frequency:
           id: speaker_gpio
           frequency: 300Hz
       - delay: 250ms
-      #- output.turn_off: speaker_gpio
-      - output.set_level:
-          id: speaker_gpio
-          level: 0%
+      - script.execute: speaker_gpio_off
   - id: beep_up
     then:
-      - output.turn_on: speaker_gpio
+      - script.execute: speaker_gpio_on
       - output.ledc.set_frequency:
           id: speaker_gpio
           frequency: 600Hz
-      - output.set_level:
-          id: speaker_gpio
-          level: 50%
       - delay: 100ms
       - output.ledc.set_frequency:
           id: speaker_gpio
@@ -209,19 +196,13 @@ script:
           id: speaker_gpio
           frequency: 750Hz
       - delay: 100ms
-      #- output.turn_off: speaker_gpio
-      - output.set_level:
-          id: speaker_gpio
-          level: 0%
+      - script.execute: speaker_gpio_off
   - id: beep_down
     then:
-      - output.turn_on: speaker_gpio
+      - script.execute: speaker_gpio_on
       - output.ledc.set_frequency:
           id: speaker_gpio
           frequency: 750Hz
-      - output.set_level:
-          id: speaker_gpio
-          level: 50%
       - delay: 100ms
       - output.ledc.set_frequency:
           id: speaker_gpio
@@ -235,10 +216,7 @@ script:
           id: speaker_gpio
           frequency: 600Hz
       - delay: 100ms
-      #- output.turn_off: speaker_gpio
-      - output.set_level:
-          id: speaker_gpio
-          level: 0%
+      - script.execute: speaker_gpio_off
   - id: intercom_press_always
     then:
     # on call end -- means either the door was opened (remotely or by button press) or call timed out (but that happens after longer than 30s)
@@ -279,6 +257,10 @@ script:
         data:
           title: 'Apartment notification: Someone rang the intercom'
           message: An intercom call has been unanswered for 30s.  Further emails of this type will be suppressed for 2 mins.
+
+globals:
+  - id: speaker_gpio_is_on
+    type: bool
 
 switch:
   - name: "Door unlock signal"
@@ -485,6 +467,22 @@ binary_sensor:
       - script.stop: unhandled_call_alert
     on_release:
       script.execute: beep_down
+  - name: "Ringing"
+    id: ringing
+    device_class: sound
+    platform: gpio
+    pin:
+      number: 2
+      mode: INPUT_PULLDOWN
+    filters:
+    - delayed_off: 3s
+    - lambda: |-
+        if (!id(speaker_gpio_is_on))
+          return x;
+        else if (!x)
+          return false;
+        else
+          return {};
 
 sensor:
   - name: "Intercom node signal"
