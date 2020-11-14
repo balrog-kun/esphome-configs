@@ -114,12 +114,25 @@ logger:
 api:
   reboot_timeout: 0s
   services:
-    - service: alarm
-      then:
-        - script.execute: ring_alarm
-    - service: error_beep
-      then:
-        - script.execute: error_beep
+  - service: alarm
+    then:
+    - script.execute: ring_alarm
+  - service: error_beep
+    then:
+    - script.execute: error_beep
+  # The idea here is for HA to be able to tell us when to start and stop
+  # beeping when the door is ajar but also for the alarm to time out rather
+  # quickly if HA forgets to call "_stop" or connection is lost.  HA has
+  # to call "_start" at least every 30s.  We could also use an extra
+  # wifi.connected check...
+  - service: door_reminder_start
+    then:
+    - script.stop: schedule_beep_x10
+    - script.execute: schedule_beep_x10
+  - service: door_reminder_stop
+    then:
+    - script.stop: schedule_beep_x10
+    - script.stop: beep_x10
 
 ota:
   password: !secret ota_password
@@ -150,6 +163,14 @@ script:
           id: speaker_gpio
           frequency: 1000Hz
       - delay: 500ms
+      - script.execute: speaker_gpio_off
+  - id: shorter_beep
+    then:
+      - script.execute: speaker_gpio_on
+      - output.ledc.set_frequency:
+          id: speaker_gpio
+          frequency: 3000Hz
+      - delay: 100ms
       - script.execute: speaker_gpio_off
   - id: ring_alarm
     then:
@@ -257,6 +278,44 @@ script:
         data:
           title: 'Apartment notification: Someone rang the intercom'
           message: An intercom call has been unanswered for 30s.  Further emails of this type will be suppressed for 2 mins.
+  - id: beep_x10
+    then:
+    - script.execute: shorter_beep
+    - delay: 3s
+    - script.execute: shorter_beep
+    - delay: 3s
+    - script.execute: shorter_beep
+    - delay: 3s
+    - script.execute: shorter_beep
+    - delay: 3s
+    - script.execute: shorter_beep
+    - delay: 3s
+    - script.stop: schedule_beep_x10
+    - script.execute: shorter_beep
+    - delay: 3s
+    - script.execute: shorter_beep
+    - delay: 3s
+    - script.execute: shorter_beep
+    - delay: 3s
+    - script.execute: shorter_beep
+    - delay: 3s
+    - script.execute: shorter_beep
+    - delay: 3s
+  - id: schedule_beep_x10
+    then:
+    - script.wait: beep_x10 # Has a Component::loop(), can we get rid of it?
+    - script.execute: beep_x10
+  - id: speaker_gpio_on
+    then:
+    - lambda: id(speaker_gpio_is_on) = true;
+    - output.turn_on: speaker_gpio
+    - output.set_level:
+        id: speaker_gpio
+        level: 50%
+  - id: speaker_gpio_off
+    then:
+    - output.turn_off: speaker_gpio
+    - lambda: id(speaker_gpio_is_on) = false;
 
 globals:
   - id: speaker_gpio_is_on
