@@ -413,6 +413,7 @@ binary_sensor:
         - script.execute: on_door_close
   - name: "Doorbell switch"
     #icon: 'mdi:doorbell'
+    device_class: sound
     platform: gpio
     pin:
       number: 26
