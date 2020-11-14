@@ -466,7 +466,7 @@ binary_sensor:
   - name: "Phone unhooked"
     id: phone_up
     #icon: 'mdi:phone-in-talk'
-    device_class: presence
+    #device_class: presence
     ### occupancy??
     platform: gpio
     # Actually connected to the mic which is just 18Ohm to GND so it'll pull the signal down
