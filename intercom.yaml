@@ -337,7 +337,7 @@ switch:
     on_turn_on:
       then:
       - script.stop: unhandled_call_alert
-      - delay: 1s
+      - delay: 500ms
       - switch.turn_off: unlock
     on_turn_off:
       then:
