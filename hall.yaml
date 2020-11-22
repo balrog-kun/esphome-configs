@@ -165,6 +165,10 @@ switch:
     platform: gpio
     pin: 3
     restore_mode: ALWAYS_OFF
+    on_turn_on:
+      then:
+      - delay: 1s
+      - switch.turn_off: doorbell
   - name: "Doorbell silenced"
     icon: 'mdi:volume-off'
     id: doorbell_silenced
