@@ -510,7 +510,9 @@ binary_sensor:
       - script.execute: intercom_call_end
       - if:
           condition:
-            binary_sensor.is_off: phone_up
+            and:
+            - binary_sensor.is_off: phone_up
+            - switch.is_off: silenced
           then:
           - script.execute: beep_down
   - name: "Phone unhooked"
