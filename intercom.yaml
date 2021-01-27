@@ -82,6 +82,8 @@ esphome:
     - output.turn_on: gnd_enabled
     - output.turn_on: green_led
     - script.execute: speaker_gpio_off
+    - delay: 5s
+    - lambda: id(cap_loaded) = true;
 
 wifi:
   networks:
@@ -326,8 +328,53 @@ script:
     - output.turn_off: speaker_gpio
     - lambda: id(speaker_gpio_is_on) = false;
 
+  - id: cap_reload
+    then:
+    - lambda: id(cap_loaded) = false;
+    - delay: 3s
+    - lambda: id(cap_loaded) = true;
+
+  - id: hall_socket_update_send
+    then:
+    - if:
+        condition:
+          lambda: return id(hall_socket_target);
+        then:
+        - output.turn_off: hall_socket_coil_2
+        - output.turn_on: hall_socket_coil_1
+        - delay: 50ms
+        - output.turn_off: hall_socket_coil_1
+        # Do this rather than publish_state(id(hall_socket_target)) in the common code because
+        # hall_socket_target might have changed
+        - lambda: id(hall_socket).publish_state(true);
+        else:
+        - output.turn_off: hall_socket_coil_1
+        - output.turn_on: hall_socket_coil_2
+        - delay: 50ms
+        - output.turn_off: hall_socket_coil_2
+        - lambda: id(hall_socket).publish_state(false);
+  - id: hall_socket_update_wait
+    then:
+    - wait_until:
+        lambda: return id(cap_loaded);
+    - script.execute: cap_reload
+    - script.execute: hall_socket_update_send
+  - id: hall_socket_update
+    then:
+    - if:
+        condition:
+          not:
+            script.is_running: hall_socket_update_wait
+        then:
+          script.execute: hall_socket_update_wait
+
 globals:
   - id: speaker_gpio_is_on
+    type: bool
+  - id: cap_loaded
+    type: bool
+    initial_value: 'false'
+  - id: hall_socket_target
     type: bool
 
 switch:
@@ -412,19 +459,15 @@ switch:
     platform: template
     turn_on_action:
       then:
-      - output.turn_off: hall_socket_coil_2
-      - output.turn_on: hall_socket_coil_1
-      - delay: 40ms
-      - output.turn_off: hall_socket_coil_1
+      - lambda: id(hall_socket_target) = true;
+      - script.execute: hall_socket_update
     turn_off_action:
       then:
-      - output.turn_off: hall_socket_coil_1
-      - output.turn_on: hall_socket_coil_2
-      - delay: 40ms
-      - output.turn_off: hall_socket_coil_2
-    # TODO: add a big cap at 5v?
-    optimistic: yes
-    restore_state: no ##
+      - lambda: id(hall_socket_target) = false;
+      - script.execute: hall_socket_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_OFF
 
 output:
   - id: speaker_gpio
