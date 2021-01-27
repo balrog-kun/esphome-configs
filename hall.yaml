@@ -145,10 +145,13 @@ switch:
     pin: 16
     restore_mode: ALWAYS_ON
   - name: "Main area power"
+    icon: 'mdi:home-lightbulb'
     platform: gpio
     pin: 17
     restore_mode: ALWAYS_ON
-  - name: "Bathroom socket power"
+  - name: "Bathroom socket"
+    id: bathroom_socket
+    icon: 'mdi:power-socket-de'
     platform: gpio
     pin:
       number: 5

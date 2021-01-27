@@ -52,18 +52,22 @@ web_server:
 switch:
   # Bedroom light + bedroom2light node, the 3 wall sockets + 1 living room socket
   - name: "Bedroom 2 power"
+    icon: 'mdi:bed'
     platform: gpio
     pin: 5
   - name: "Living room socket 1"
+    icon: 'mdi:power-socket-de'
     platform: gpio
     pin: 18
     restore_mode: ALWAYS_ON
   - name: "Living room socket 2"
+    icon: 'mdi:power-socket-de'
     platform: gpio
     pin:
       number: 23
       inverted: yes
   - name: "Bedroom 1 sockets"
+    icon: 'mdi:power-socket-de'
     platform: gpio
     pin:
       number: 19
@@ -330,37 +334,37 @@ i2c:
 
 ads1115:
   address: 0x48
-  continuous_mode: on #<-- broken if multiple channels used
+  continuous_mode: off #<-- broken if multiple channels used ### works if patch applied.. which patch was it??
   id: ads1115_48
 
 sensor:
   - platform: bme280
     temperature:
-      name: "Living room ambient temperature"
-      id: bme280_temperature
+      name: "Living room node temperature"
+      id: living_room_node_temperature
       filters:
-        - offset: -15.0
-        - delta: 0.2
+        - delta: 0.4
     pressure:
       name: "Living room QFE"
-      id: bme280_pressure
+      id: living_room_qfe
       filters:
-        - delta: 0.2
+        - delta: 0.4
     humidity:
       name: "Living room relative humidity"
-      id: bme280_humidity
+      id: living_room_humidity
       filters:
-        - delta: 0.2
+        - delta: 0.4
     address: 0x76
     # default oversampling of 16x and interval of 60s
   - name: "Living room QNH"
+    id: living_room_qnh
     platform: template
     unit_of_measurement: 'hPa'
     icon: 'mdi:gauge'
     lambda: |-
       const float STANDARD_ALTITUDE = 630; // in meters
-      return id(bme280_pressure).state / powf(1 - ((0.0065 * STANDARD_ALTITUDE) /
-        (id(bme280_temperature).state + (0.0065 * STANDARD_ALTITUDE) + 273.15)), 5.257);
+      return id(living_room_qfe).state / powf(1 - ((0.0065 * STANDARD_ALTITUDE) /
+        (id(living_room_node_temperature).state + (0.0065 * STANDARD_ALTITUDE) + 273.15)), 5.257);
     update_interval: 60s
     filters:
       - delta: 0.2
@@ -376,8 +380,8 @@ sensor:
       filters:
         - filter_out: 65021
         - delta: 1
-    temperature: bme280_temperature
-    humidity: bme280_humidity
+    temperature: living_room_node_temperature
+    humidity: living_room_humidity
     address: 0x5a
     ## eventually set to 60s as the sensor updates only every 60s anyway?? recheck
     update_interval: 15s
