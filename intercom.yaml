@@ -407,6 +407,8 @@ switch:
     optimistic: yes
     # restore_mode: ALWAYS_OFF
   - name: "Hall socket"
+    id: hall_socket
+    icon: 'mdi:power-socket-de'
     platform: template
     turn_on_action:
       then:
