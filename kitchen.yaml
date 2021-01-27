@@ -1,0 +1,1145 @@
+# vim: et:ts=2:sw=2
+#
+#
+#                                        3V                 GND
+#                                        EN               (1)TX - patio tx
+# (sig-6K8-gpio-2K4-GND) patio lght sw - VP(36)           (3)RX - patio rx
+# (sig-4K3-gpio-6K8-GND) over sink PIR - VN(39)              3V - 
+#                          patio light - 32                  22 - SCL to the IO expander(s) + BMP280
+#                      over sink strip - 33                  21 - SDA to the IO expander(s) + BMP280
+#                           MQ-7 input - 34                 GND
+# (-4K7-gpio -4K7-gnd) kitchen lght sw - 35                 GND
+#                          led strip 1 - 25     Lolin D32    19 - MISO to CS5460A's SDO
+#                          led strip 2 - 26                  23 - MOSI to CS5460A's SDI
+#                          led strip 3 - 27                  18 - SCK to CS5460A's SCLK
+#                                      - 14                   5 - 
+#                                      - 12                  3V
+#                                      - 13                  17 - 
+#                                        5V                  16 - 
+#                                        GND                  4 - 
+#                                                             0 - multiplexer sig 1
+#                                                           GND
+#                                                             2 - multiplexer sig 2
+#                                                            15 - multiplexer sig 3
+# multiplexer:
+#   CD74HC4067 https://www.ti.com/lit/ds/symlink/cd74hc4067.pdf
+# relay drivers:
+#   ULN2003APG https://datasheet.lcsc.com/szlcsc/ULN2004APG_C14336.pdf
+# ULN2003APG io expander:
+#   MCP23017   https://ww1.microchip.com/downloads/en/devicedoc/20001952c.pdf
+# CO sensor:
+#   MQ-7       https://www.pololu.com/file/0J313/MQ7.pdf
+# Temp/Pressure/Humidity sensor:
+#   BMP280
+# Power meter sensor:
+#   CS5460A:
+#     CT at 2000:1 turns
+#     Burden of 10 Ohm
+#     IIN+ Goes through the CD74HC4067 which adds between 60 and 140Ohm typical 80Ohm, then 235Ohm
+#     PT at 1500:1500 turns
+#     Primary with 820kOhm in series
+#     Secondary in parallel with 680Ohm
+#     IIN- through 300Ohm, and to 2.5V (2.4kOhm to 5V, 2.4kOhm to GND, 220uF to GND)
+#     VIN- to 300 to 1K to GND to 1K to 300 to VIN+, burden 680, current limiting 820k
+#     https://www.falstad.com/circuit/circuitjs.html?ctz=CQAgDOB0YzCsICMZICYaoOyYMxgByoBsAnCZiHBAgCw4BQATiDukkRKxKnEeCEXxh6ANxAk+iDuL48+ERJU480dfhBRx6qRAkSZZqGiFT58Jo-1QgAlvQDuMk7yQHn8pk6kK33-oVhhR31JaRCLYyCWNj9Tcz8ouPZuTGtUS0TU92juFyiaImM5SlNs-MLkkvjpYQBzEDo0ggbWCPV6AAcqyrhSoSR25hxBSuHzdHMFWE8x7NmJ-mQYBxzRkYSVrjmR4qj55saTZuEu3vGXM5ZhgY0Z9ekC4wSWZaGdl0eyl+EAYwaKvyfXYmSCYACmAFpzBCUGASPgcDgSDh9Dh8LwSHBFLCwIh6AB7JDWCoQGhwyaQXREHhQbFIAlIcwko40Qi03g0lCKbn0IA
+#
+# TODO connect:
+#   the MQ-7 -- should make the heater switchable? how long does it take to get up to full temp?
+#   an arduino in the patio?? with a BMP180, LEDs, PIR, LDR and what not...
+#   an ESPHome filter that does moving window averaging until delta crossed
+#   ceiling light - to mains GND but through a mosfet so we can stop it from using power when idle
+#   (same for the over-sink light possibly)
+#   FIX THE MICROWAVE RELAY
+#   replace the strip with 144/m density...
+#
+# Socket ctrl board connections:
+#   left:
+#     SCL
+#     SDA
+#     GND
+#     5V for the chips
+#     12V for the coils
+#     NC
+#   right:
+#     multiplexer S0
+#     multiplexer S1
+#     multiplexer S2 <-- could be connected to expander outputs... we've only got 1 left
+#     CS5460A's SCK
+#     CS5460A's MOSI
+#     CS5460A's MISO
+#
+# MQ-7:
+#   5V
+#   GND
+#   A-IN
+#
+# 6-wire cables:
+#   To patio hall:
+#     white  serial tx
+#     green  serial rx
+#     yellow patio light switch + (pulled to GND on ON)
+#     blue   GND (duplicated as mains ground too)
+#     gray   patio light -
+#     red    NC
+#     ^ no pins left for PIR -- we'd need signal and 5V
+#       also missing patio LED strip ctrl
+#   To over sink:
+#     white  LED strip signal
+#     green  PIR signal
+#     yellow NC (maybe extractor extend signal?)
+#     blue   GND (duplicated as mains ground too)
+#     gray   5V for the PIR power
+#     red    NC
+#   To light:
+#     white  LED strip 1 signal
+#     green  LED strip 2 signal
+#     yellow LED strip 3 signal
+#     blue   GND
+#     gray   NC
+#     red    NC
+#   To light switch:
+#     white  light switch signal
+#     green  NC
+#     yellow NC
+#     blue   GND (NC on switch side)
+#     gray   NC
+#     red    3.3V
+#   To doorbell:
+#     white  NC -> doorbell signal
+#     green  NC
+#     yellow NC
+#     blue   GND
+#     gray   NC
+#     red    NC
+#
+# orig kitchen fluorescent light tubes x2:
+# 18W/765 1050lm
+# orig HV LED tube:
+# 9W 900lm
+# 600mm
+#
+# new LED:
+# 0.3W/led 60leds/m
+# 36leds/600mm
+#
+# 80 leds total     (36 + 36 + 4 + 4)
+# 24W total - 5Amps
+#
+# or 108leds/600mm  (36 + 36 + 36)
+# 36W total - 7Amps
+#
+# or 180leds/600mm  (36 + 36 + 36 + 36 + 36)
+# 60W total - 12Amps
+#
+# ---------------
+#
+# 7.5A per 5m, 1.5A per 1m, 0.025A per LED, 0.3W per LED
+# 38 per strip (0.63m), 0.95A per strip, 11.4W per strip
+# 114 LEDs per 3 strips, 2.86A per 3 strips, 33.2W per 3 strips
+#
+esphome:
+  name: kitchen
+  platform: ESP32
+  board: lolin32
+  on_boot:
+    priority: 700
+    then:
+    - output.turn_off: relay_1_open
+    - output.turn_off: relay_1_close
+    - output.turn_off: relay_2_open
+    - output.turn_off: relay_2_close
+    - output.turn_off: relay_3_open
+    - output.turn_off: relay_3_close
+    - output.turn_off: relay_4_open
+    - output.turn_off: relay_4_close
+    - output.turn_off: relay_5_open
+    - output.turn_off: relay_5_close
+    - output.turn_off: relay_6_open
+    - output.turn_off: relay_6_close
+    - output.turn_off: relay_7_open
+    - output.turn_off: relay_7_close
+    - output.turn_off: current_select_bit0
+    - output.turn_off: current_select_bit1
+    - output.turn_off: current_select_bit2
+    - delay: 3s
+    - lambda: id(cap_loaded) = true;
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid1
+      password: !secret wifi_password
+    - ssid: !secret wifi_ssid2
+      password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 10.0.5.15
+    gateway: 10.0.6.1
+    subnet: 255.255.252.0
+    dns1: 10.0.6.1
+    dns2: 8.8.8.8
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Kitchen Fallback Hotspot"
+    password: !secret ap_password
+    ap_timeout: 2min
+
+  #forwarding_ap:
+  #  ssid: "SalvaProxy"
+  #  password: !secret wifi_password
+
+  # Work around the GPIO36 issue
+  #power_save_mode: none
+
+# Enable logging
+# TODO: patio UART comms https://esphome.io/components/uart.html
+logger:
+  baud_rate: 115200
+
+# Enable Home Assistant API
+api:
+  # Don't reboot if no connection to API
+  reboot_timeout: 0s
+  services:
+    - service: alarm
+      then:
+        - script.execute: ring_alarm
+    - service: set_light_angle
+      variables:
+        angle: int
+      then:
+        - lambda: |-
+            id(kitchen_light_angle) = angle;
+            ESP_LOGI("service", "angle = %i", angle);
+        # TODO: trigger an update here instead of polling in the effect
+    - service: set_light_velocity
+      variables:
+        velocity: int
+      then:
+        - lambda: |-
+            id(kitchen_light_velocity) = velocity;
+            ESP_LOGI("service", "velocity = %i", velocity);
+
+ota:
+  password: !secret ota_password
+
+web_server:
+  port: 80
+
+globals:
+  - id: kitchen_light_angle
+    type: float
+    initial_value: '0'
+  - id: kitchen_light_velocity
+    type: float
+    initial_value: '60'
+  - id: cap_loaded
+    type: bool
+    initial_value: 'false'
+  - id: relay_update_value
+    type: int
+    initial_value: '0'
+  - id: relay_update_mask
+    type: int
+    initial_value: '0'
+  - id: relay_update_tmp_output
+    type: output::BinaryOutput *
+
+output:
+  - id: patio_hall_light_gpio
+    platform: ledc
+    pin: 32
+  - id: current_select_bit0
+    platform: gpio
+    pin: 15
+  - id: current_select_bit1
+    platform: gpio
+    pin: 2
+  - id: current_select_bit2
+    platform: gpio
+    pin: 0
+  # current_select_bit3 wired to GND
+  # cx: relay x close coil
+  # ox: relay x open coil
+  # cs: CS5460A chip-select (was at B6, now hardwired to GND)
+  # o4 c4 o3 c3 o2 c2 o1 c1
+  # A0 A1 A2 A3 A4 A5 A6 A7
+  # B0 B1 B2 B3 B4 B5 B6 B7
+  # o7 c7 o6 c6 o5 c5
+  - id: relay_1_close
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 7
+  - id: relay_1_open
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 6
+  - id: relay_2_close
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 5
+  - id: relay_2_open
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 4
+  - id: relay_3_close
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 3
+  - id: relay_3_open
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 2
+  - id: relay_4_close
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 1
+  - id: relay_4_open
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 0
+  - id: relay_5_close
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 13
+  - id: relay_5_open
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 12
+  - id: relay_6_close
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 11
+  - id: relay_6_open
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 10
+  - id: relay_7_close
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 9
+  - id: relay_7_open
+    platform: gpio
+    pin:
+      mcp23017: expander
+      number: 8
+
+light:
+  - name: "Kitchen LED strip 1"
+    id: kitchen_led_strip1
+    pin: 25
+    chipset: WS2812B
+    num_leds: 38
+    platform: fastled_clockless
+    internal: yes
+  - name: "Kitchen LED strip 2"
+    id: kitchen_led_strip2
+    pin: 26
+    chipset: WS2812B
+    num_leds: 38
+    platform: fastled_clockless
+    internal: yes
+  - name: "Kitchen LED strip 3"
+    id: kitchen_led_strip3
+    pin: 27
+    chipset: WS2812B
+    num_leds: 38
+    platform: fastled_clockless
+    internal: yes
+  - name: "Kitchen light"
+    id: kitchen_light
+    platform: partition
+    segments:
+    - id: kitchen_led_strip1
+      from: 0
+      to: 37
+    - id: kitchen_led_strip2
+      from: 0
+      to: 37
+    - id: kitchen_led_strip3
+      from: 0
+      to: 37
+    effects:
+    # TODO: progressive fade
+    # https://esphome.io/components/light/index.html#light-effects
+    - addressable_twinkle:
+    - addressable_random_twinkle:
+    - addressable_fireworks: # TODO: could improve for a 2D led distribution
+    - addressable_flicker:
+    - addressable_lambda:
+        name: "Police"
+        update_interval: 50ms
+        lambda: |-
+          static const uint8_t rows = 3;
+          static const uint8_t len = it.size() / rows;
+          static const uint8_t q1 = len / 4;
+          static const uint8_t q3 = len - len / 4;
+          static const struct { int8_t left, middle, right; } sequence[24] = {
+            { 0, 0, 0 },
+            { 1, 0, 0 },
+            { 0, 0, 0 },
+            { 1, 0, 0 },
+            { 1, 0, 2 },
+            { 1, 0, 0 },
+            { 0, 0, 0 },
+            { 0, 0, 1 },
+            { 0, 0, 0 },
+            { 0, 0, 1 },
+            { 2, 0, 1 },
+            { 0, 0, 1 },
+            { 0, 0, 0 },
+            { 1, 0, 0 },
+            { 0, 0, 0 },
+            { 1, 0, 0 },
+            { 1, 1, 0 },
+            { 1, 0, 0 },
+            { 0, 1, 0 },
+            { 0, 0, 1 },
+            { 0, 1, 0 },
+            { 0, 0, 1 },
+            { 0, 1, 1 },
+            { 0, 0, 1 },
+          };
+
+          static uint8_t frame = 0;
+          uint8_t prev_frame = frame;
+          if (initial_run) {
+            prev_frame = 0;
+            frame = 1;
+            it.all() = ESPColor::BLACK;
+          } else {
+            frame++;
+            if (frame >= 24)
+              frame = 0;
+          }
+
+          auto cur = sequence[frame];
+          auto prev = sequence[prev_frame];
+
+          if (cur.left != prev.left)
+            for (uint8_t row = 0; row < rows; row++)
+              it.range(row * len + q3, row * len + len) =
+                cur.left == 1 ? ESPColor(0, 0, 255) : (cur.left == 0 ? ESPColor::BLACK : ESPColor(255, 0, 0));
+
+          if (cur.right != prev.right)
+            for (uint8_t row = 0; row < rows; row++)
+              it.range(row * len, row * len + q1) =
+                cur.right == 1 ? ESPColor(0, 0, 255) : (cur.right == 0 ? ESPColor::BLACK : ESPColor(255, 0, 0));
+
+          if (cur.middle != prev.middle)
+            for (uint8_t row = 0; row < rows; row++)
+              it.range(row * len + q1, row * len + q3) =
+                cur.middle ? ESPColor::WHITE : ESPColor::BLACK;
+
+    - addressable_lambda:
+        name: "Warning"
+        update_interval: 50ms
+        lambda: |-
+          static const uint8_t rows = 3;
+          static const uint8_t len = it.size() / rows;
+          static const uint8_t distance = 3;
+          uint16_t velocity = id(kitchen_light_velocity);
+          static uint16_t angle;
+          angle++;
+
+          uint8_t j = 0;
+          for (int8_t row = 0; row < rows; row++)
+            for (int8_t i = 0; i < len; i++) {
+              float x = (row - (rows - 1) * 0.5) * distance;
+              float y = i - len / 2;
+              uint16_t diff = ((uint16_t) (atan2f(y, x) * (2048.0 / 6.283)) - angle * velocity) & 2047;
+              uint8_t intensity;
+
+              if (diff < 256)
+                intensity = 255;
+              else if (diff < 512)
+                intensity = 511 - diff;
+              else if (diff >= 2048 - 256)
+                intensity = diff - 2048 - 256;
+              else
+                intensity = 0;
+
+              it[j++] = ESPColor(intensity, (uint16_t) intensity * 2 / 3, 0);
+            }
+
+    - addressable_lambda:
+        name: "Fire"
+        update_interval: 50ms
+        lambda: |-
+          static const uint8_t rows = 3;
+          static const uint8_t len = it.size() / rows;
+          static const uint16_t height = 38;     /* In pixels */
+          static const uint16_t max_heat = 2000; /* 448 is 100% white */
+          static uint16_t heat[height];
+          uint16_t velocity = id(kitchen_light_velocity);
+
+          if (initial_run)
+            it.all() = ESPColor::BLACK;
+
+          heat[0] = random(64, max_heat);
+
+          uint32_t max_cooling = (uint32_t) max_heat * velocity / 200;
+          uint16_t next[height];
+          for (uint16_t i = 0; i < height; i++) {
+            /* TODO: make the average size scale with height by adjusting this to @height and perhaps scale cooling linearly with @i */
+            uint16_t cooldown = random(0, max_cooling / max((int) i, 1));
+            if (cooldown > heat[i])
+              heat[i] = 0;
+            else
+              heat[i] -= cooldown;
+
+            /* TODO: vary the speed depending on heat? */
+            uint32_t sum = 0;
+            uint32_t weightsum = 0;
+            int vel = min((int) velocity, i * 100);
+            for (int j = 0; j < 8 && j <= i; j++) {
+              int weight = clamp(100 - abs(vel - j * 100) / 3, 10, 90);
+              sum += (uint32_t) heat[i - j] * weight;
+              weightsum += weight;
+            }
+            next[i] = sum / weightsum;
+
+            uint16_t h = next[i];
+            it[len + i] = ESPColor(clamp(h * 4, 0, 255), clamp((h - 64) * 2, 0, 255), clamp(h - 128 - 64, 0, 255));
+          }
+          memcpy(heat, next, sizeof(heat));
+
+    - addressable_lambda:
+        name: "Angle"
+        update_interval: 100ms
+        lambda: |-
+          static const uint8_t rows = 3;
+          static const uint8_t len = it.size() / rows;
+
+          static float angle = -100.0;
+          float new_angle = id(kitchen_light_angle);
+          if (angle == new_angle)
+            return;
+          angle = new_angle;
+
+          for (uint8_t row = 0; row < rows; row++) {
+            uint8_t a = clamp(fabsf(row - (rows - 1) * 0.5 - angle), 0.0, 2.0) * 50.0;
+
+            it.range(row * len, (row + 1) * len) = current_color * (uint8_t) (255 - a);
+          }
+
+    - addressable_lambda:
+        name: "Cylon"
+        update_interval: 30ms
+        lambda: |-
+          static const uint8_t rows = 3;
+          static const uint8_t len = it.size() / rows;
+          static const uint8_t elen = len / 4;
+          static const uint8_t feather = elen / 2;
+          static uint16_t t = 0;
+          uint8_t pos = abs((int) (t++ % (2 * (len - elen))) - (len - elen)) + elen / 2;
+
+          for (uint8_t i = 0; i < len; i++) {
+            uint8_t v = clamp(((int16_t) elen / 2 - abs(i - pos)) * 255 / feather, 0, 255);
+
+            for (uint8_t row = 0; row < rows; row++)
+              it[i + row * len] = current_color * v;
+          }
+
+    - addressable_lambda:
+        name: "Scan"
+        update_interval: 30ms
+        lambda: |-
+          static const uint8_t rows = 3;
+          static const uint8_t len = it.size() / rows;
+          static uint8_t t;
+
+          if (initial_run)
+            t = 0;
+
+          if (t > len * 2 + 7)
+            return;
+
+          uint8_t pos = t++;
+          if (pos > len + 3)
+            pos = 2 * len + 6 - pos;
+
+          for (uint8_t i = 0; i < len; i++)
+            for (uint8_t row = 0; row < rows; row++)
+              it[len - 1 - i + row * len] = ESPColor(i == pos ? 255 : 0, 0, 0);
+
+    - addressable_lambda:
+        name: "Flood on"
+        update_interval: 30ms
+        lambda: |-
+          static const uint8_t rows = 3;
+          static const uint8_t len = it.size() / rows;
+          static const uint8_t blen = len / 8;
+          static const uint8_t step1brightness = 64;
+          static const int total_time = 2000;
+          static uint8_t t;
+
+          if (initial_run)
+            t = 0;
+
+          if (t > total_time / 30)
+            return;
+
+          uint8_t pos = (int) t++ * 2 * len * 50 / total_time;
+
+          for (uint8_t i = 0; i < len; i++) {
+            uint8_t v;
+
+            if (pos < len) {
+              if (i < pos)
+                v = step1brightness + (len - (pos - i)) * (255 - step1brightness) / len;
+              else if (i < pos + blen)
+                v = (blen - (i - pos)) * 255 / blen;
+              else
+                v = 0;
+            } else {
+              v = step1brightness + i * (255 - step1brightness) / len;
+              v = min((int) v + (pos - len) * 2 * (255 - step1brightness) / len, 255);
+            }
+
+            for (uint8_t row = 0; row < rows; row++)
+              it[len - 1 - i + row * len] = current_color * v;
+          }
+
+  - name: "Kitchen over-sink light"
+    id: kitchen_oversink_light
+    pin: 33
+    chipset: WS2812B
+    num_leds: 73
+    platform: fastled_clockless
+    effects:
+    - addressable_twinkle:
+    - addressable_random_twinkle:
+    - addressable_fireworks:
+    - addressable_flicker:
+    - addressable_lambda:
+        name: "Flood on"
+        update_interval: 30ms
+        lambda: |-
+          static const uint8_t rows = 1;
+          static const uint8_t len = it.size() / rows;
+          static const uint8_t blen = len / 10;
+          static const uint8_t step1brightness = 64;
+          static const int total_time = 4000;
+          static uint8_t t;
+
+          if (initial_run)
+            t = 0;
+
+          if (t > total_time / 30)
+            return;
+
+          uint8_t pos = (int) t++ * 2 * len * 50 / total_time;
+
+          for (uint8_t i = 0; i < len; i++) {
+            uint8_t v;
+
+            if (pos < len) {
+              if (i < pos)
+                v = step1brightness + (len - (pos - i)) * (255 - step1brightness) / len;
+              else if (i < pos + blen)
+                v = (blen - (i - pos)) * 255 / blen;
+              else
+                v = 0;
+            } else {
+              v = step1brightness + i * (255 - step1brightness) / len;
+              v = min((int) v + (pos - len) * 2 * (255 - step1brightness) / len, 255);
+            }
+
+            for (uint8_t row = 0; row < rows; row++)
+              it[i + row * len] = current_color * v;
+          }
+
+  - name: "Patio Hall light"
+    id: patio_hall_light
+    output: patio_hall_light_gpio
+    platform: monochromatic
+
+script:
+  - id: ring_alarm
+    then:
+      - if:
+          condition:
+            not:
+              script.is_running: ring_alarm
+          then:
+            - light.toggle: kitchen_light
+            - light.toggle: patio_hall_light
+            - delay: 400ms
+            - light.toggle: kitchen_light
+            - light.toggle: patio_hall_light
+            - delay: 1s
+            - light.toggle: kitchen_light
+            - light.toggle: patio_hall_light
+            - delay: 400ms
+            - light.toggle: kitchen_light
+            - light.toggle: patio_hall_light
+            - delay: 1s
+            - light.toggle: kitchen_light
+            - light.toggle: patio_hall_light
+            - delay: 400ms
+            - light.toggle: kitchen_light
+            - light.toggle: patio_hall_light
+            - delay: 1s
+            - light.toggle: kitchen_light
+            - light.toggle: patio_hall_light
+            - delay: 400ms
+            - light.toggle: kitchen_light
+            - light.toggle: patio_hall_light
+
+  - id: cap_reload
+    then:
+    - lambda: id(cap_loaded) = false;
+    - delay: 1s
+    - lambda: id(cap_loaded) = true;
+
+  - id: relay_update_run
+    then:
+    - while:
+        condition:
+          lambda: return id(relay_update_mask) > 0;
+        then:
+          - wait_until:
+              lambda: return id(cap_loaded);
+          - script.execute: cap_reload
+          - lambda: |-
+              const static int num = 7;
+              const static struct {
+                output::BinaryOutput *ops[2];
+                switch_::Switch *component;
+              } relays[num] = {
+                /* 1.5mm2 cable, 16A relay */
+                { id(relay_1_open), id(relay_1_close), id(kitchen_oversink_socket) },
+                /* 2.5mm2 cable, 50A relay */
+                { id(relay_2_open), id(relay_2_close), id(patio_power) },
+                /* 6mm2 cable,   16A relay */
+                { id(relay_3_open), id(relay_3_close), id(kitchen_undersink_socket), },
+                /* 6mm2 cable,   50A relay */
+                { id(relay_4_open), id(relay_4_close), id(oven_power) },
+                /* 2.5mm2 cable, 16A relay */
+                { id(relay_5_open), id(relay_5_close), id(microwave_socket) },
+                /* 2.5mm2 cable, 16A relay */
+                { id(relay_6_open), id(relay_6_close), id(fridge) },
+                /* 2.5mm2 cable, 16A relay */
+                { id(relay_7_open), id(relay_7_close), id(kitchen_door_socket) },
+              };
+              unsigned int i, op;
+
+              for (i = 0; i < num && !(id(relay_update_mask) & (1 << i)); i++);
+              if (i == num)
+                return;
+
+              id(relay_update_mask) = (unsigned short) id(relay_update_mask) & ~(1 << i) & ((1 << num) - 1);
+              op = ((unsigned short) id(relay_update_value) >> i) & 1;
+              id(relay_update_tmp_output) = relays[i].ops[op];
+              id(relay_update_tmp_output)->turn_on();
+              relays[i].component->publish_state(op == 1);
+          - delay: 50ms
+          - lambda: |-
+              id(relay_update_tmp_output)->turn_off();
+
+  - id: relay_update
+    then:
+    - if:
+        condition:
+          not:
+            script.is_running: relay_update_run
+        then:
+          script.execute: relay_update_run
+
+  - id: oversink_light_triggered
+    then:
+    - light.turn_on:
+        id: kitchen_oversink_light
+        effect: "Flood on"
+    - delay: 60s
+    - light.turn_off:
+        id: kitchen_oversink_light
+        transition_length: 30s
+
+binary_sensor:
+  - name: "Kitchen switch"
+    on_state:
+      then:
+      - if:
+          condition:
+            light.is_off: kitchen_light
+          then:
+          - light.turn_on:
+              id: kitchen_light
+              effect: "Flood on"
+            # TODO: switch to effect None after 2s
+          else:
+          - light.turn_off: kitchen_light
+          - light.turn_off: kitchen_oversink_light
+          - script.stop: oversink_light_triggered
+    platform: gpio
+    pin:
+      number: 35
+      # Is there even a pulldown on this pin?
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Patio hall switch"
+    on_state:
+      then:
+      - light.toggle: patio_hall_light
+    platform: gpio
+    pin:
+      number: 36
+      # Is there even a pulldown on this pin?
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Over-sink motion"
+    id: hall_kitchen_motion
+    device_class: motion
+    platform: gpio
+    pin:
+      number: 39
+      mode: INPUT_PULLDOWN
+    # Not the greatest solution, but should work for now
+    # Note automations.yaml is based on this value and needs to change
+    # whenever this changes
+    filters:
+      delayed_off: 5s
+    on_press:
+      if:
+        condition:
+          or:
+          - light.is_on: kitchen_light
+          - light.is_on: patio_hall_light
+          - binary_sensor.is_on: hall_light
+          - lambda: return id(hall_brightness).state < 1.0f;
+        then:
+        - script.stop: oversink_light_triggered
+        - script.execute: oversink_light_triggered
+  - id: hall_light
+    internal: yes
+    platform: homeassistant
+    entity_id: light.hall_light
+
+switch:
+  - name: "Over-sink socket"
+    id: kitchen_oversink_socket
+    icon: 'mdi:power-socket-de'
+    platform: template
+    turn_on_action:
+      then:
+      - lambda: id(relay_update_value) |= 1 << 0;
+      - lambda: id(relay_update_mask) |= 1 << 0;
+      - script.execute: relay_update
+    turn_off_action:
+      then:
+      - lambda: id(relay_update_value) &= ~(1 << 0);
+      - lambda: id(relay_update_mask) |= 1 << 0;
+      - script.execute: relay_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_OFF
+  - name: "Patio power"
+    id: patio_power
+    platform: template
+    turn_on_action:
+      then:
+      - lambda: id(relay_update_value) |= 1 << 1;
+      - lambda: id(relay_update_mask) |= 1 << 1;
+      - script.execute: relay_update
+    turn_off_action:
+      then:
+      - lambda: id(relay_update_value) &= ~(1 << 1);
+      - lambda: id(relay_update_mask) |= 1 << 1;
+      - script.execute: relay_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_OFF
+  - name: "Under-sink socket"
+    id: kitchen_undersink_socket
+    icon: 'mdi:power-socket-de'
+    platform: template
+    turn_on_action:
+      then:
+      - lambda: id(relay_update_value) |= 1 << 2;
+      - lambda: id(relay_update_mask) |= 1 << 2;
+      - script.execute: relay_update
+    turn_off_action:
+      then:
+      - lambda: id(relay_update_value) &= ~(1 << 2);
+      - lambda: id(relay_update_mask) |= 1 << 2;
+      - script.execute: relay_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_OFF
+  - name: "Oven power"
+    id: oven_power
+    icon: 'mdi:toaster-oven'
+    platform: template
+    turn_on_action:
+      then:
+      - lambda: id(relay_update_value) |= 1 << 3;
+      - lambda: id(relay_update_mask) |= 1 << 3;
+      - script.execute: relay_update
+    turn_off_action:
+      then:
+      - lambda: id(relay_update_value) &= ~(1 << 3);
+      - lambda: id(relay_update_mask) |= 1 << 3;
+      - script.execute: relay_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_OFF
+  - name: "Microwave socket"
+    id: microwave_socket
+    icon: 'mdi:microwave'
+    platform: template
+    turn_on_action:
+      then:
+      - lambda: id(relay_update_value) |= 1 << 4;
+      - lambda: id(relay_update_mask) |= 1 << 4;
+      - script.execute: relay_update
+    turn_off_action:
+      then:
+      - lambda: id(relay_update_value) &= ~(1 << 4);
+      - lambda: id(relay_update_mask) |= 1 << 4;
+      - script.execute: relay_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_OFF
+  - name: "Fridge"
+    id: fridge
+    icon: 'mdi:fridge'
+    platform: template
+    turn_on_action:
+      then:
+      - lambda: id(relay_update_value) |= 1 << 5;
+      - lambda: id(relay_update_mask) |= 1 << 5;
+      - script.execute: relay_update
+    turn_off_action:
+      then:
+      - lambda: id(relay_update_value) &= ~(1 << 5);
+      - lambda: id(relay_update_mask) |= 1 << 5;
+      - script.execute: relay_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_ON
+  - name: "Kitchen door socket"
+    id: kitchen_door_socket
+    icon: 'mdi:power-socket-de'
+    platform: template
+    turn_on_action:
+      then:
+      - lambda: id(relay_update_value) |= 1 << 6;
+      - lambda: id(relay_update_mask) |= 1 << 6;
+      - script.execute: relay_update
+    turn_off_action:
+      then:
+      - lambda: id(relay_update_value) &= ~(1 << 6);
+      - lambda: id(relay_update_mask) |= 1 << 6;
+      - script.execute: relay_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_OFF
+
+i2c:
+  sda: 21
+  scl: 22
+  scan: true
+  frequency: 400kHz
+
+spi:
+  clk_pin: 18
+  mosi_pin: 23
+  miso_pin: 19
+
+mcp23017:
+  - id: expander
+
+sensor:
+  - platform: bme280
+    temperature:
+      name: "Hall ambient temperature"
+      id: bme280_temperature
+      filters:
+        - offset: -2.0
+        - delta: 0.2
+    pressure:
+      name: "Hall QFE"
+      id: bme280_pressure
+      filters:
+        - delta: 0.2
+    humidity:
+      name: "Hall relative humidity"
+      id: bme280_humidity
+      filters:
+        - delta: 0.2
+    address: 0x76
+    # default oversampling of 16x and interval of 60s
+  - name: "Hall CO"
+    id: mq7_co
+    icon: 'mdi:fire'
+    platform: adc
+    pin: 34
+    attenuation: 11db # 0V - 3.9V for now
+    unit_of_measurement: 'ppm'
+    accuracy_decimals: 0
+    filters:
+      - sliding_window_moving_average:
+          window_size: 30
+          send_every: 15
+          send_first_at: 15
+      - calibrate_linear:
+          - 0 -> 0
+          - 5 -> 1000
+      - delta: 1
+    update_interval: 3s
+    # 70ppm is considered unsafe for CO... but we don't have absolute units
+    #on_value_range:
+    #  above: 140
+    #  then:
+    #  - script.execute: ring_alarm
+    #  - text_sensor.template.publish:
+    #      id: hall_alarm_text
+    #      state: !lambda 'std::string v = to_string(id(mq7_co).state); return "High CO detected: " + v + " ppm";'
+  - name: "Over-sink socket power usage"
+    id: kitchen_oversink_socket_power_usage
+    platform: template
+    icon: 'mdi:flash'
+    accuracy_decimals: 0
+    unit_of_measurement: 'W'
+    filters:
+      delta: 5
+  - name: "Patio power usage"
+    id: patio_power_usage
+    platform: template
+    icon: 'mdi:flash'
+    accuracy_decimals: 0
+    unit_of_measurement: 'W'
+    filters:
+    - multiply: -1
+    - delta: 5
+  - name: "Under-sink socket power usage"
+    id: kitchen_undersink_socket_power_usage
+    platform: template
+    icon: 'mdi:flash'
+    accuracy_decimals: 0
+    unit_of_measurement: 'W'
+    filters:
+      delta: 5
+  - name: "Oven power usage"
+    id: oven_power_usage
+    platform: template
+    icon: 'mdi:flash'
+    accuracy_decimals: 0
+    unit_of_measurement: 'W'
+    filters:
+      delta: 5
+  - name: "Microwave socket power usage"
+    id: microwave_socket_power_usage
+    platform: template
+    icon: 'mdi:flash'
+    accuracy_decimals: 0
+    unit_of_measurement: 'W'
+    filters:
+    - multiply: -1
+    - delta: 5
+  - name: "Fridge power usage"
+    id: fridge_power_usage
+    platform: template
+    icon: 'mdi:flash'
+    accuracy_decimals: 0
+    unit_of_measurement: 'W'
+    filters:
+      delta: 5
+  - name: "Kitchen door socket power usage"
+    id: kitchen_door_socket_power_usage
+    platform: template
+    icon: 'mdi:flash'
+    accuracy_decimals: 0
+    unit_of_measurement: 'W'
+    filters:
+      delta: 5
+  - id: cs5460a_sensor
+    voltage:
+      name: "Mains voltage"
+      id: mains_voltage
+      filters:
+        delta: 4
+    power:
+      internal: yes
+      id: power_raw
+      on_raw_value:
+        then:
+          - lambda: |-
+              const static int num = 8;
+              static sensor::Sensor *const sensors[num] = {
+                id(kitchen_door_socket_power_usage),
+                id(fridge_power_usage),
+                id(microwave_socket_power_usage),
+                id(oven_power_usage),
+                id(kitchen_undersink_socket_power_usage),
+                id(patio_power_usage),
+                id(kitchen_oversink_socket_power_usage),
+              };
+              static int current_idx = 0;
+              static float prev_val = 0;
+
+              sensors[current_idx]->publish_state(x);
+
+              /* Move on */
+              do {
+                current_idx = (current_idx + 1) % num;
+              } while (!sensors[current_idx]);
+
+              /* Multiline macros not supported */
+              #define SET_BIT(output, n)  \
+              if (current_idx & (1 << n)) \
+                output->turn_on();        \
+              else                        \
+                output->turn_off();
+
+              SET_BIT(id(current_select_bit2), 2)
+              SET_BIT(id(current_select_bit1), 1)
+              SET_BIT(id(current_select_bit0), 0)
+              id(cs5460a_sensor).restart();
+
+    samples: 2000           # 500ms or 25 mains cycles at 50Hz assuming MCLK of 4.096MHz
+    pga_gain: 10X
+    current_gain: 0.005     # 10 Ohm burden / 2000 turn current tranformer, 300 Rc+ and 60Ohm-at the multiplexer + 470/2 Rc- and a 27nF Rcdiff
+    voltage_gain: 0.0004376 # (1/(1/680Ohm+1/2kOhm)) / 820000 Ohm / sqrt(2) (why?), 300 and 300 Rv+/Rv- and a 27nF Rvdiff
+    platform: cs5460a
+    #cs_pin:
+    #  mcp23017: expander
+    #  number: 14
+  - id: hall_brightness
+    internal: yes
+    platform: homeassistant
+    entity_id: sensor.hall_brightness
+  - name: "Kitchen node signal"
+    platform: wifi_signal
+    filters:
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 16
+          send_first_at: 8
+      - delta: 1
+    update_interval: 1min
+  - name: "Kitchen node uptime"
+    platform: uptime
+    update_interval: 1h
+# TODO: overcurrent triggers
+
+text_sensor:
+  - name: "Kitchen node version"
+    platform: version
