@@ -1,0 +1,492 @@
+# vim: et:ts=2:sw=2
+#
+#         (3.3V-LDR-gpio-5.6K-GND) LDR - VP(36)              3V
+# (sig-6K8-gpio-2K4-GND) patio lght sw - VN(39)              22 - LED
+#                                        EN                  19 - patio hall light mosfet gate
+#                               NTC in - 34                  23 - kitchen rx
+#   (sig-gpio-10K-3.3V) microswitch in - 35                  18 - kitchen tx
+#                      microswitch out - 32                   5 - GPIO2
+#                       thermostat out - 33                  17 - (move kitchen rx here?)
+#     boiler 220V power OMRON SSR gate - 25   Lolin32 Lite   16 - (move kitchen tx here?)
+#                          sensors SDA - 26                   4 - 
+#                          sensors SCL - 27                   0 - 
+#                          led strip 1 - 14                   2 - 
+#                          led strip 2 - 12                  15 - led strip power - (to mosfet)
+#                                        GND                 13 - PIR in (sig-4K3-gpio) (-6K8-GND disconnected)
+#
+#   fixed cables: GND (black), 12V (red), LED strip - (black)
+#   Missing on this board: TX (1), RX (3), 5V, gpio 21?
+#   input only: 34, 35, 36, 39
+#   ADC: 32-39 only
+#   patio hall light: E27 socket outer = left = negative = shorter white originally interrupted by the switch, E27 socket center pin = right = positive = long white
+#
+#      3.3V
+#        LDR
+#      gpio 36
+#        5.6 kOhm <-- gives us good range in very dark and very bright situations and 1mA power use
+#      GND
+#
+#   boiler three-pos switch lever settings:
+#     * lever down:            DHW mech+auto, heating auto
+#     * lever center position: DHW auto,      heating auto
+#     * lever up:              DHW mech+auto, heating on
+#   heating is always off if the right potentiometer on the panel is set to DHW-only (left position)
+#   must be in the right position for heating to ever work in any mode
+#
+# TODO connect:
+#   maybe a BMP280 right here?? yeah, maybe...
+#   move the uart to pins 16/17?? this is supposedly esp32's hardware UART2
+#   fix hot water flow reading when boiler is off in auto+mech modes -- somehow CN6.4 pulls our gpio down strongly when boiler off -- how do we fix this? wire it through a diode?
+#
+# Lolin32 Lite schematics: https://web.archive.org/web/20190902005100/https://wiki.wemos.cc/_media/products:lolin32:sch_lolin32_lite_v1.0.0.pdf
+#
+# NTC in voltages:
+# 20 kOhm -> 4.5V   (10 deg)
+# 15 kOhm -> 4.0V   (15 deg)
+# 7 kOhm -> 3.3V    (32 deg)
+# 6.5 kOhm -> 2.9V  (35 deg)
+# 3.7 kOhm -> 2.5V  (50 deg)
+# 3 kOhm -> 2.1V    (55 deg)
+#   divide it by 2: need to use very high resistance values to not affect the reading by the boiler
+#
+# Boiler CN6:
+#   3, 9, 11 all at GND
+#   2 at 4.5V ---> NTC+
+#   15 at 33V ---> thermostat+
+#   4 at 33V  ---> microswitch+
+#
+# custom switch board male connector:
+#   GND             - black       - CN6.3, CN6.9, CN6.11, ...
+#   NTC in          - white       - CN6.2
+#   microswitch in  - green thin  - microswitch+
+#   microswitch out - green thick - CN6.4
+#   thermostat out  - orange      - CN6.15
+# https://www.circuit-diagram.org/editor/c/c365e37280dd43288a499c9aeabf2cda
+#
+# 6-wire cables:
+#   To kitchen:
+#     white  serial rx
+#     green  serial tx
+#     yellow patio light switch
+#     blue   GND (duplicated as mains ground too)
+#     gray   NC (pir expected here -- we could connect the PIR signal we have elsewhere on the board -- not broken out)
+#     red    NC (kitchen-controllable 12V mosfet here -- but a single 0.22m2 section cable of this lengths is too low amp)
+#   To light/light switch:
+#     white  light switch signal (12V when on, NC when off)
+#     green  light-
+#     yellow light-
+#     blue   light-
+#     gray   light-
+#     red    light-
+#   To boiler:
+#     white  microswitch in  (locally pulled-up to 3.3V, on the boiler board connected through a 0.6V-drop diode)
+#     green  microswitch out (mosfet gate, pulled down by 10k)
+#     yellow thermostat out  (mosfet gate, pulled down by 10k)
+#     blue   GND (duplicated as mains ground too)
+#     gray   NTC+ in (voltage divided by 2 through 150k+150k Rs)
+#     red    OMRON G3MB-202P SSR gate
+#     35, 32, 33, gnd, 34, 25
+#   To water sensors:
+#     white  SDA
+#     green  SCL
+#     yellow GPIO1 (NC on the pcb for now)
+#     blue   GND
+#     gray   GPIO2
+#     red    5V
+#   To patio LEDs:
+#     white  LED strip signal 1
+#     green  LED strip signal 2
+#     yellow LED strip signal 3 (NC on the pcb for now)
+#     blue   GND
+#     gray   NC
+#     red    NC
+#
+esphome:
+  name: patio
+  platform: ESP32
+  board: lolin32-lite
+  on_boot:
+    priority: 700
+    then:
+    - output.turn_off: led_strip_power
+    - output.turn_off: dhw_microswitch_out
+    - switch.turn_off: water_preheat
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid1
+      password: !secret wifi_password
+    - ssid: !secret wifi_ssid2
+      password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 10.0.5.16
+    gateway: 10.0.6.1
+    subnet: 255.255.252.0
+    dns1: 10.0.6.1
+    dns2: 8.8.8.8
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Patio Fallback Hotspot"
+    password: !secret ap_password
+    ap_timeout: 2min
+
+  # Work around the GPIO36 issue
+  #power_save_mode: none
+
+# Enable logging
+logger:
+  baud_rate: 115200
+
+uart:
+  id: kitchen_comms_port
+  baud_rate: 115200
+  tx_pin: 18
+  rx_pin: 23
+
+interval:
+  - interval: 10s
+    then:
+    - uart.write:
+        id: kitchen_comms_port
+        data: "Hi there"
+
+custom_component:
+  - lambda: |-
+      class PatioCommsComponent : public Component, public UARTDevice {
+       public:
+        PatioCommsComponent(UARTComponent *parent) : UARTDevice(parent) {}
+
+        void setup() override {}
+        void loop() override {
+          if (!available())
+            return;
+
+          char str[10];
+          int len = 0;
+          while (available() && len < sizeof(str) - 1) {
+            uint8_t byte;
+            read_byte(&byte);
+            if (byte)
+              str[len++] = byte;
+          }
+          if (len) {
+            str[len] = '\0';
+            ESP_LOGI("kitchen", "received: '%s' from the kitchen", str);
+          }
+        }
+      };
+      auto comms = new PatioCommsComponent(id(kitchen_comms_port));
+      return {comms};
+
+
+# Enable Home Assistant API
+api:
+  # Don't reboot if no connection to API
+  reboot_timeout: 0s
+  services:
+    - service: alarm
+      then:
+        - script.execute: ring_alarm
+
+ota:
+  password: !secret ota_password
+
+web_server:
+  port: 80
+
+globals:
+  - id: boiler_was_off
+    type: bool
+  - id: dhw_microswitch_out_state
+    type: bool
+    initial_value: 'false'
+
+output:
+  - id: led_strip_power
+    platform: gpio
+    pin: 15
+  - id: patio_hall_light_gpio
+    platform: ledc
+    pin: 19
+  - id: dhw_microswitch_out
+    platform: gpio
+    pin: 32
+
+switch:
+  - name: "Boiler power"
+    id: boiler_power
+    icon: 'mdi:water-boiler'
+    restore_mode: ALWAYS_OFF
+    on_turn_off:
+      then:
+      - lambda: id(boiler_ntc_temp).publish_state(NAN);
+      - script.stop: boiler_auto_off
+    platform: gpio
+    pin: 25
+
+  - name: "Heating"
+    id: heating
+    icon: 'mdi:fire'
+    restore_mode: ALWAYS_OFF
+    platform: gpio
+    pin: 33
+    on_turn_on:
+      then:
+      - script.execute: boiler_ensure_on
+      # Temporary failsafe 25min auto-off until we have the thermostat logic in HA
+      # TODO: move to a script so we can auto-kill it in on_turn_off, same thing in pre-heat?
+      - delay: 25min
+      - switch.turn_off: heating
+    on_turn_off:
+      then:
+      - if:
+          condition:
+            lambda: return !id(dhw_microswitch_out_state);
+          then:
+          - script.execute: boiler_auto_off
+
+  - name: "Hot water"
+    id: hot_water
+    icon: 'mdi:hand-water'
+    # We don't power the boiler up automatically here because even if
+    # we're in the mech+auto mode and microswitch in detection isn't
+    # working, in that mode the user is assumed to control the power
+    # manually.
+    turn_on_action:
+      then:
+        script.execute: dhw_microswitch_update
+    turn_off_action:
+      then:
+        script.execute: dhw_microswitch_update
+    optimistic: yes
+    platform: template
+
+  - name: "Water preheat"
+    id: water_preheat
+    icon: 'mdi:fire'
+    #restore_mode: ALWAYS_OFF
+    # TODO: auto-off in 30s or when specific temp reached whichever occurs first?? on the other hand, the boiler probably controls the upper temp so no need?
+    # TODO: perhaps refuse to turn on if this has been on in the last 30s?
+    turn_on_action:
+      then:
+      - script.execute: dhw_microswitch_update
+      - delay: 30s
+      - switch.turn_off: water_preheat
+    turn_off_action:
+      then:
+        script.execute: dhw_microswitch_update
+    optimistic: yes
+    platform: template
+
+light:
+  - name: "Patio hall light"
+    id: patio_hall_light
+    output: patio_hall_light_gpio
+    platform: monochromatic
+
+script:
+  - id: dhw_microswitch_update
+    then:
+    - if:
+        condition:
+        - lambda: return !id(dhw_microswitch_out_state);
+        - switch.is_on: hot_water
+        - or:
+          - binary_sensor.is_on: dhw_microswitch_in
+          - switch.is_on: water_preheat
+        then:
+        - output.turn_on: dhw_microswitch_out
+        - lambda: id(dhw_microswitch_out_state) = true;
+        - script.execute: boiler_ensure_on
+    - if:
+        condition:
+        - lambda: return id(dhw_microswitch_out_state);
+        - or:
+          - switch.is_off: hot_water
+          - and:
+            - binary_sensor.is_off: dhw_microswitch_in
+            - switch.is_off: water_preheat
+        then:
+        - output.turn_off: dhw_microswitch_out
+        - lambda: id(dhw_microswitch_out_state) = false;
+        - if:
+            condition:
+              switch.is_off: heating
+            then:
+            - script.execute: boiler_auto_off
+
+  - id: boiler_ensure_on
+    then:
+    - if:
+        condition:
+          switch.is_off: boiler_power
+        then:
+        - switch.turn_on: boiler_power
+        - lambda: id(boiler_was_off) = true;
+        - script.stop: boiler_auto_off
+        else:
+        - lambda: id(boiler_was_off) = false;
+
+  - id: boiler_auto_off
+    then:
+      if:
+        condition:
+        - lambda: return id(boiler_was_off);
+        - switch.is_on: boiler_power
+        then:
+        - delay: 10min
+        - switch.turn_off: boiler_power
+
+  - id: ring_alarm
+    then:
+      - if:
+          condition:
+            not:
+              script.is_running: ring_alarm
+          then:
+            - light.toggle: patio_hall_light
+            - delay: 400ms
+            - light.toggle: patio_hall_light
+            - delay: 1s
+            - light.toggle: patio_hall_light
+            - delay: 400ms
+            - light.toggle: patio_hall_light
+            - delay: 1s
+            - light.toggle: patio_hall_light
+            - delay: 400ms
+            - light.toggle: patio_hall_light
+            - delay: 1s
+            - light.toggle: patio_hall_light
+            - delay: 400ms
+            - light.toggle: patio_hall_light
+
+binary_sensor:
+  - name: "Patio hall motion"
+    id: patio_hall_motion
+    device_class: motion
+    platform: gpio
+    # No voltage divider needed or pullups/pulldowns, the input is already in the 0-3.3V range but
+    # seems to go through some resistance so any further pullups/pulldowns or voltage dividers
+    # also affect the voltage at the input.  Use a pull-down just so we get 0 when the sensor is
+    # disconnected, this results in a 0-3.15V range which is Ok.
+    # Middle potentiometer sets the sentivity and is at the default value (~middle position or
+    # about 5m detection range.)
+    # Side potentiometer sets the inactivity timeout and is turned all the way to the left (CCW)
+    # but this still has a timeout of about 7-8 seconds.
+    # Trigger mode set to H (non-default) or repeat-trigger, i.e. BISS0001's A pin at 3.3V
+    pin:
+      number: 13
+      mode: INPUT_PULLDOWN
+    # Not the greatest solution, but should work for now
+    filters:
+      delayed_off: 5s
+
+  - name: "Patio hall switch"
+    on_state:
+      then:
+      - light.toggle: patio_hall_light
+    platform: gpio
+    pin:
+      number: 39
+      mode: INPUT # No pulldown as we already have a voltage divider there, working as a pulldown
+    filters:
+      delayed_on_off: 40ms
+
+  - name: "Hot water flow"
+    #icon: 'mdi:hand-water'
+    id: dhw_microswitch_in
+    on_press:
+      then:
+        script.execute: dhw_microswitch_update
+    on_release:
+      then:
+        script.execute: dhw_microswitch_update
+    platform: gpio
+    pin:
+      number: 35
+      mode: INPUT_PULLUP
+      inverted: yes
+    filters:
+      delayed_on_off: 40ms
+
+i2c:
+  sda: 26
+  scl: 27
+  scan: true
+  frequency: 100kHz
+
+sensor:
+  # Add the BME280 and the 9-DoF when ready
+  - name: "Patio hall brightness"
+    id: patio_hall_brightness
+    icon: 'mdi:car-light-high'
+    platform: adc
+    pin: 36
+    attenuation: 11db # 0V - 3.9V
+    unit_of_measurement: '%'
+    accuracy_decimals: 0
+    filters:
+    - calibrate_linear:
+      - 0 -> 0
+      - 3.33 -> 100
+    - sliding_window_moving_average:
+        window_size: 16
+        send_every: 16
+        send_first_at: 4
+    - delta: 1
+    update_interval: 3s
+
+  - name: "Boiler temperature"
+    id: boiler_ntc_temp
+    icon: 'mdi:thermometer'
+    platform: adc
+    pin: 34
+    attenuation: 11db # 0V - 3.9V
+    unit_of_measurement: 'ºC'
+    accuracy_decimals: 0
+    filters:
+    # Filter out 0.0V readings meaning the NTC most likely isn't connected
+    - lambda: if (x < 0.3 || !id(boiler_power).state) return {}; return x;
+    - calibrate_linear:
+      # TODO: actually calculate the voltage divider parameters and then use the table on manual pg 27
+      - 2.25 -> 10
+      - 2.0  -> 15
+      - 1.65 -> 32
+      - 1.45 -> 35
+      - 1.25 -> 50
+      - 1.05 -> 55
+    - sliding_window_moving_average:
+        window_size: 4
+        send_every: 4
+        send_first_at: 2
+    - delta: 1
+    update_interval: 0.4s
+
+  - name: "Patio hall node signal"
+    platform: wifi_signal
+    filters:
+    - sliding_window_moving_average:
+        window_size: 16
+        send_every: 16
+        send_first_at: 8
+    - delta: 1
+    update_interval: 1min
+  - name: "Patio hall node uptime"
+    platform: uptime
+    update_interval: 1h
+
+text_sensor:
+  - name: "Patio hall node version"
+    platform: version
+# TODO:
+# * fix the PIR
+# * thermostat logic? perhaps in HA... use hall temperature as reference.. add temp setpoint and hysteresis
+# * motion automation? yeah, perhaps light, based on LDR too
+# * set up serial comms
+# * HA voice/sound warnings for heating started, heating disabled (dhw running), water reached 50C, heating stopped?
+# * HA alerts about anything in the kitchen (not patio) using current for too long, fridge using too much or too little current
+# * start using substitutions in our .yaml files!! use a ".common.yaml"? https://esphome.io/guides/configuration-types.html#substitutions
+#   or maybe packages
+# * HA ok sound when door closed properly, and in what other circumstances?
