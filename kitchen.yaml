@@ -188,10 +188,43 @@ wifi:
   # Work around the GPIO36 issue
   #power_save_mode: none
 
-# Enable logging
-# TODO: patio UART comms https://esphome.io/components/uart.html
+# Logger must be enabled for OTA logs to be available but we avoid touching
+# UART 0 because we use it for the comms with the patio
 logger:
+  baud_rate: 0
+
+uart:
+  id: patio_comms_port
   baud_rate: 115200
+  tx_pin: 1
+  rx_pin: 3
+
+interval:
+  - interval: 10s
+    then:
+    - uart.write: "Hello"
+
+custom_component:
+  - lambda: |-
+      class KitchenCommsComponent : public Component, public UARTDevice {
+       public:
+        KitchenCommsComponent(UARTComponent *parent) : UARTDevice(parent) {}
+
+        void setup() override {}
+        void loop() override {
+          if (!available())
+            return;
+
+          char str[10];
+          int len = 0;
+          while (available() && len < sizeof(str) - 1)
+            read_byte((uint8_t *) str + len++);
+          str[len] = '\0';
+          ESP_LOGI("patio", "received: '%s' from patio", str);
+        }
+      };
+      auto comms = new KitchenCommsComponent(id(patio_comms_port));
+      return {comms};
 
 # Enable Home Assistant API
 api:
@@ -663,10 +696,13 @@ light:
               it[i + row * len] = current_color * v;
           }
 
-  - name: "Patio Hall light"
-    id: patio_hall_light
-    output: patio_hall_light_gpio
-    platform: monochromatic
+  # The wire does go to patio hall but it not connected to any light on the patio side because
+  # the patio node controls the lighting there.  Also saves us from transferring 0.5 to 1 amps
+  # over the 0.22m2 wire.
+  #- name: "Patio Hall light"
+  #  id: patio_hall_light
+  #  output: patio_hall_light_gpio
+  #  platform: monochromatic
 
 script:
   - id: ring_alarm
@@ -677,28 +713,28 @@ script:
               script.is_running: ring_alarm
           then:
             - light.toggle: kitchen_light
-            - light.toggle: patio_hall_light
+            #- light.toggle: patio_hall_light
             - delay: 400ms
             - light.toggle: kitchen_light
-            - light.toggle: patio_hall_light
+            #- light.toggle: patio_hall_light
             - delay: 1s
             - light.toggle: kitchen_light
-            - light.toggle: patio_hall_light
+            #- light.toggle: patio_hall_light
             - delay: 400ms
             - light.toggle: kitchen_light
-            - light.toggle: patio_hall_light
+            #- light.toggle: patio_hall_light
             - delay: 1s
             - light.toggle: kitchen_light
-            - light.toggle: patio_hall_light
+            #- light.toggle: patio_hall_light
             - delay: 400ms
             - light.toggle: kitchen_light
-            - light.toggle: patio_hall_light
+            #- light.toggle: patio_hall_light
             - delay: 1s
             - light.toggle: kitchen_light
-            - light.toggle: patio_hall_light
+            #- light.toggle: patio_hall_light
             - delay: 400ms
             - light.toggle: kitchen_light
-            - light.toggle: patio_hall_light
+            #- light.toggle: patio_hall_light
 
   - id: cap_reload
     then:
@@ -792,9 +828,11 @@ binary_sensor:
     filters:
       delayed_on_off: 40ms
   - name: "Patio hall switch"
-    on_state:
-      then:
-      - light.toggle: patio_hall_light
+    id: patio_hall_switch
+    internal: yes
+    #on_state:
+    #  then:
+    #  - light.toggle: patio_hall_light
     platform: gpio
     pin:
       number: 36
@@ -819,8 +857,8 @@ binary_sensor:
         condition:
           or:
           - light.is_on: kitchen_light
-          - light.is_on: patio_hall_light
           - binary_sensor.is_on: hall_light
+          - binary_sensor.is_on: patio_hall_light
           - lambda: return id(hall_brightness).state < 1.0f;
         then:
         - script.stop: oversink_light_schedule_off
@@ -841,6 +879,10 @@ binary_sensor:
     internal: yes
     platform: homeassistant
     entity_id: light.hall_light
+  - id: patio_hall_light
+    internal: yes
+    platform: homeassistant
+    entity_id: light.patio_hall_light
 
 switch:
   - name: "Over-sink socket"
