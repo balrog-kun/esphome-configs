@@ -12,9 +12,9 @@
 #                          led strip 1 - 25     Lolin D32    19 - MISO to CS5460A's SDO
 #                          led strip 2 - 26                  23 - MOSI to CS5460A's SDI
 #                          led strip 3 - 27                  18 - SCK to CS5460A's SCLK
-#                                      - 14                   5 - 
+#                                      - 14                   5 - kitchen light power supply mosfet gate (drain to kitchen light -, source to GND)
 #                                      - 12                  3V
-#                                      - 13                  17 - 
+#                                      - 13                  17 - to potential oversink light mosfet gate (oversink yellow)
 #                                        5V                  16 - 
 #                                        GND                  4 - 
 #                                                             0 - multiplexer sig 1
@@ -45,11 +45,9 @@
 #
 # TODO connect:
 #   the MQ-7 -- should make the heater switchable? how long does it take to get up to full temp?
-#   an arduino in the patio?? with a BMP180, LEDs, PIR, LDR and what not...
 #   an ESPHome filter that does moving window averaging until delta crossed
 #   ceiling light - to mains GND but through a mosfet so we can stop it from using power when idle
 #   (same for the over-sink light possibly)
-#   FIX THE MICROWAVE RELAY
 #   replace the strip with 144/m density...
 #
 # Socket ctrl board connections:
@@ -77,16 +75,14 @@
 #   To patio hall:
 #     white  serial tx
 #     green  serial rx
-#     yellow patio light switch + (pulled to GND on ON)
+#     yellow patio light switch
 #     blue   GND (duplicated as mains ground too)
 #     gray   patio light -
 #     red    NC
-#     ^ no pins left for PIR -- we'd need signal and 5V
-#       also missing patio LED strip ctrl
 #   To over sink:
 #     white  LED strip signal
 #     green  PIR signal
-#     yellow NC (maybe extractor extend signal?)
+#     yellow future LED strip power supply (mosfet gate)
 #     blue   GND (duplicated as mains ground too)
 #     gray   5V for the PIR power
 #     red    NC
@@ -158,6 +154,7 @@ esphome:
     - output.turn_off: relay_6_close
     - output.turn_off: relay_7_open
     - output.turn_off: relay_7_close
+    - output.turn_on: kitchen_light_power
     - output.turn_off: current_select_bit0
     - output.turn_off: current_select_bit1
     - output.turn_off: current_select_bit2
@@ -258,6 +255,9 @@ output:
   - id: current_select_bit2
     platform: gpio
     pin: 0
+  - id: kitchen_light_power
+    platform: gpio
+    pin: 5
   # current_select_bit3 wired to GND
   # cx: relay x close coil
   # ox: relay x open coil
@@ -265,7 +265,7 @@ output:
   # o4 c4 o3 c3 o2 c2 o1 c1
   # A0 A1 A2 A3 A4 A5 A6 A7
   # B0 B1 B2 B3 B4 B5 B6 B7
-  # o7 c7 o6 c6 o5 c5
+  # o7 c7 o6 c6 o5 c5 nc nc
   - id: relay_1_close
     platform: gpio
     pin:
