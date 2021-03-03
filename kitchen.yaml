@@ -760,11 +760,8 @@ script:
         then:
           script.execute: relay_update_run
 
-  - id: oversink_light_triggered
+  - id: oversink_light_schedule_off
     then:
-    - light.turn_on:
-        id: kitchen_oversink_light
-        effect: "Flood on"
     - delay: 60s
     - light.turn_off:
         id: kitchen_oversink_light
@@ -773,19 +770,20 @@ script:
 binary_sensor:
   - name: "Kitchen switch"
     on_state:
-      then:
-      - if:
-          condition:
-            light.is_off: kitchen_light
-          then:
-          - light.turn_on:
-              id: kitchen_light
-              effect: "Flood on"
-            # TODO: switch to effect None after 2s
-          else:
-          - light.turn_off: kitchen_light
-          - light.turn_off: kitchen_oversink_light
-          - script.stop: oversink_light_triggered
+      if:
+        condition:
+          light.is_off: kitchen_light
+        then:
+        - light.turn_on:
+            id: kitchen_light
+            effect: "Flood on"
+          # TODO: switch to effect None after 2s
+        else:
+        - light.turn_off: kitchen_light
+        - script.stop: oversink_light_schedule_off
+        - light.turn_off:
+            id: kitchen_oversink_light
+            transition_length: 5s
     platform: gpio
     pin:
       number: 35
@@ -825,8 +823,20 @@ binary_sensor:
           - binary_sensor.is_on: hall_light
           - lambda: return id(hall_brightness).state < 1.0f;
         then:
-        - script.stop: oversink_light_triggered
-        - script.execute: oversink_light_triggered
+        - script.stop: oversink_light_schedule_off
+        - if:
+            condition:
+              light.is_off: kitchen_oversink_light
+            then:
+              light.turn_on:
+                id: kitchen_oversink_light
+                effect: "Flood on"
+    on_release:
+      if:
+        condition:
+          light.is_on: kitchen_oversink_light
+        then:
+          script.execute: oversink_light_schedule_off
   - id: hall_light
     internal: yes
     platform: homeassistant
