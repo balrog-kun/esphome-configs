@@ -374,12 +374,12 @@ sensor:
       filters:
         - filter_out: 65021
         - filter_out: 0
-        - delta: 1
+        - delta: 25
     tvoc:
       name: "Living room total Volatile Organic Compound"
       filters:
         - filter_out: 65021
-        - delta: 1
+        - delta: 8
     temperature: living_room_node_temperature
     humidity: living_room_humidity
     address: 0x5a
