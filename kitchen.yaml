@@ -528,15 +528,15 @@ light:
         update_interval: 50ms
         lambda: |-
           static const uint8_t rows = 3;
-          static const uint8_t len = it.size() / rows;
+          static const uint16_t len = it.size() / rows;
           static const uint8_t distance = 3;
           uint16_t velocity = id(kitchen_light_velocity);
           static uint16_t angle;
           angle++;
 
-          uint8_t j = 0;
+          uint16_t j = 0;
           for (int8_t row = 0; row < rows; row++)
-            for (int8_t i = 0; i < len; i++) {
+            for (int16_t i = 0; i < len; i++) {
               float x = (row - (rows - 1) * 0.5) * distance;
               float y = i - len / 2;
               uint16_t diff = ((uint16_t) (atan2f(y, x) * (2048.0 / 6.283)) - angle * velocity) & 2047;
@@ -660,11 +660,11 @@ light:
         update_interval: 30ms
         lambda: |-
           static const uint8_t rows = 3;
-          static const uint8_t len = it.size() / rows;
-          static const uint8_t blen = len / 8;
+          static const uint16_t len = it.size() / rows;
+          static const uint16_t blen = len / 8;
           static const uint8_t step1brightness = 64;
           static const int total_time = 2000;
-          static uint8_t t;
+          static uint16_t t;
 
           if (initial_run)
             t = 0;
@@ -672,7 +672,7 @@ light:
           if (t > total_time / 30)
             return;
 
-          uint8_t pos = (int) t++ * 2 * len * 50 / total_time;
+          uint16_t pos = (int) t++ * 2 * len * 50 / total_time;
 
           for (uint8_t i = 0; i < len; i++) {
             uint8_t v;
