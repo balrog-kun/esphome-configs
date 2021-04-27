@@ -43,11 +43,10 @@
 #     VIN- to 300 to 1K to GND to 1K to 300 to VIN+, burden 680, current limiting 820k
 #     https://www.falstad.com/circuit/circuitjs.html?ctz=CQAgDOB0YzCsICMZICYaoOyYMxgByoBsAnCZiHBAgCw4BQATiDukkRKxKnEeCEXxh6ANxAk+iDuL48+ERJU480dfhBRx6qRAkSZZqGiFT58Jo-1QgAlvQDuMk7yQHn8pk6kK33-oVhhR31JaRCLYyCWNj9Tcz8ouPZuTGtUS0TU92juFyiaImM5SlNs-MLkkvjpYQBzEDo0ggbWCPV6AAcqyrhSoSR25hxBSuHzdHMFWE8x7NmJ-mQYBxzRkYSVrjmR4qj55saTZuEu3vGXM5ZhgY0Z9ekC4wSWZaGdl0eyl+EAYwaKvyfXYmSCYACmAFpzBCUGASPgcDgSDh9Dh8LwSHBFLCwIh6AB7JDWCoQGhwyaQXREHhQbFIAlIcwko40Qi03g0lCKbn0IA
 #
-# TODO connect:
+# TODO:
 #   the MQ-7 -- should make the heater switchable? how long does it take to get up to full temp?
-#   an ESPHome filter that does moving window averaging until delta crossed
+#   an ESPHome filter that does moving window averaging until delta crossed -- for the current measurement
 #   mosfet connection for the oversink light
-#   replace the strip with 144/m density...
 #
 # Socket ctrl board connections:
 #   left:
@@ -128,9 +127,46 @@
 #
 # ---------------
 #
+# if 60/m:
 # 7.5A per 5m, 1.5A per 1m, 0.025A per LED, 0.3W per LED
 # 38 per strip (0.63m), 0.95A per strip, 11.4W per strip
 # 114 LEDs per 3 strips, 2.86A per 3 strips, 33.2W per 3 strips
+#
+# if 144/m:
+# 7.2A per 2m, 3.6A per 1m, 0.025A per LED, 0.3W per LED
+# 90 per strip (0.63m), 2.25A per strip, 27.0W per strip
+# 270 LEDs per 3 strips, 6.75A per 3 strips, 81.0W per 3 strips
+#
+# Our power supply output is:
+#   72W
+#   12V at 6A max
+#
+# 0.22mm2 -> 80 ohm/km    24  AWG
+# 0.75mm2 -> 23 ohm/km    18.5AWG
+# 1.50mm2 -> 12 ohm/km    15.5AWG
+# 2.50mm2 -> 6.5ohm/km    13  AWG
+#
+# cable from PS to kitchen box:
+#   - 4m   @ 1.5mm2  -> 0.05  Ohm
+#   - 4m   @ 0.75mm2 -> 0.09  Ohm <--- should replace this one with the 4mm2 cable?
+# LR7843 R(DS)(on) max = 0.003 Ohm
+# cable from kitchen box to light box:
+#   - 5m   @ 1.5mm2  -> 0.06  Ohm
+#   - 5m   @ 1.5mm2  -> 0.06  Ohm
+# cable from light box to LED strip:
+#   - 0.5m @ 0.22mm2 -> 0.04  Ohm
+#   - 0.5m @ 0.22mm2 -> 0.04  Ohm
+# cable from kitchen box to patio hall box:
+#   - 7m   @ 1.5mm2  -> 0.08  Ohm
+#   - 7m   @ 1.5mm2  -> 0.08  Ohm
+#
+# total resistance from PS to light box: 0.26 Ohm
+# voltage drop from PS to LED strip:
+#   0.26 Ohm * 7A + 0.08 Ohm * 2.25A = 1.9V :-(
+#
+# total reisstance from PS to patio hall box: 0.30 Ohm
+#
+# Some cables may be shorter and some cables may be 2.5mm2 instead of 1.5mm2
 #
 esphome:
   name: kitchen
@@ -375,37 +411,46 @@ light:
     id: kitchen_led_strip1
     pin: 25
     chipset: WS2812B
-    num_leds: 38
+    num_leds: 90
+    rgb_order: GRB
     platform: fastled_clockless
     internal: yes
   - name: "Kitchen LED strip 2"
     id: kitchen_led_strip2
     pin: 26
     chipset: WS2812B
-    num_leds: 38
+    num_leds: 90
+    rgb_order: GRB
     platform: fastled_clockless
     internal: yes
   - name: "Kitchen LED strip 3"
     id: kitchen_led_strip3
     pin: 27
     chipset: WS2812B
-    num_leds: 38
+    num_leds: 90
+    rgb_order: GRB
     platform: fastled_clockless
     internal: yes
   - name: "Kitchen light"
     id: kitchen_light
     power_supply: kitchen_light_power
+    # Do we want this for all effects or only for normal lighting?
+    # Use this to limit the power demand to the ~72W that the PS is rated for.
+    # Each channel consumes about the same amount at max value + the
+    # special color control in the 2815 chips means that the current depends
+    # only on the brightest component value of the three at any time.
+    color_correct: [80%, 70%, 60%]
     platform: partition
     segments:
     - id: kitchen_led_strip1
       from: 0
-      to: 37
+      to: 89
     - id: kitchen_led_strip2
       from: 0
-      to: 37
+      to: 89
     - id: kitchen_led_strip3
       from: 0
-      to: 37
+      to: 89
     effects:
     # TODO: progressive fade
     # https://esphome.io/components/light/index.html#light-effects
@@ -515,7 +560,7 @@ light:
         lambda: |-
           static const uint8_t rows = 3;
           static const uint8_t len = it.size() / rows;
-          static const uint16_t height = 38;     /* In pixels */
+          static const uint16_t height = 90;     /* In pixels */
           static const uint16_t max_heat = 2000; /* 448 is 100% white */
           static uint16_t heat[height];
           uint16_t velocity = id(kitchen_light_velocity);
