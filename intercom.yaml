@@ -21,12 +21,13 @@
 # gpio 32: N-channel gate, source to GND, drain to yellow, 4.7k to GND
 # gpio 12/TDI: N-channel gate, source to GND, drain to intercom GND, 4.7k to GND
 # gpio 17: N-channel gate, source to GND, drain to an 100Ohm resistor to red, TODO: do we need a pulldown here as well?? yep..
-# gpio  4: (input) 1k to GND, 2k to green and to 1k to 12V
+# gpio  4: (input) NC
 # gpio 17: N-channel gate and 4.7k to GND, source to GND, drain to relay coil 1
 # gpio 22: on-board green LED to GND
 # gpio 21: N-channel gate and 4.7k to GND, source to GND, drain to relay coil 2
 # gpio  2: (input) 2x 1.3k to GND, 4.7k to red
 #
+# previously: gpio  4: (input) 1k to GND, 2k to green and to 1k to 12V <--- this caused the street door intercom panel to burn out a few times
 # https://www.circuit-diagram.org/editor/c/e6e4eab9232c460794cd9eea00712de5
 #
 # https://www.youtube.com/watch?v=4ObzEft2R_g
