@@ -46,8 +46,7 @@
 # TODO connect:
 #   the MQ-7 -- should make the heater switchable? how long does it take to get up to full temp?
 #   an ESPHome filter that does moving window averaging until delta crossed
-#   ceiling light - to mains GND but through a mosfet so we can stop it from using power when idle
-#   (same for the over-sink light possibly)
+#   mosfet connection for the oversink light
 #   replace the strip with 144/m density...
 #
 # Socket ctrl board connections:
@@ -90,7 +89,7 @@
 #     white  LED strip 1 signal
 #     green  LED strip 2 signal
 #     yellow LED strip 3 signal
-#     blue   GND
+#     blue   GND (currently not connected to the LED strips so that power can be controlled by the mosfet)
 #     gray   NC
 #     red    NC
 #   To light switch:
@@ -154,7 +153,6 @@ esphome:
     - output.turn_off: relay_6_close
     - output.turn_off: relay_7_open
     - output.turn_off: relay_7_close
-    - output.turn_on: kitchen_light_power
     - output.turn_off: current_select_bit0
     - output.turn_off: current_select_bit1
     - output.turn_off: current_select_bit2
@@ -288,9 +286,6 @@ output:
   - id: current_select_bit2
     platform: gpio
     pin: 0
-  - id: kitchen_light_power
-    platform: gpio
-    pin: 5
   # current_select_bit3 wired to GND
   # cx: relay x close coil
   # ox: relay x open coil
@@ -370,6 +365,11 @@ output:
       mcp23017: expander
       number: 8
 
+power_supply:
+  - id: kitchen_light_power
+    pin: 5
+    enable_time: 0s
+
 light:
   - name: "Kitchen LED strip 1"
     id: kitchen_led_strip1
@@ -394,6 +394,7 @@ light:
     internal: yes
   - name: "Kitchen light"
     id: kitchen_light
+    power_supply: kitchen_light_power
     platform: partition
     segments:
     - id: kitchen_led_strip1
