@@ -498,7 +498,7 @@ light:
           if (initial_run) {
             prev_frame = 0;
             frame = 1;
-            it.all() = ESPColor::BLACK;
+            it.all() = COLOR_BLACK;
           } else {
             frame++;
             if (frame >= 24)
@@ -511,17 +511,17 @@ light:
           if (cur.left != prev.left)
             for (uint8_t row = 0; row < rows; row++)
               it.range(row * len + q3, row * len + len) =
-                cur.left == 1 ? ESPColor(0, 0, 255) : (cur.left == 0 ? ESPColor::BLACK : ESPColor(255, 0, 0));
+                cur.left == 1 ? ESPColor(0, 0, 255) : (cur.left == 0 ? COLOR_BLACK : ESPColor(255, 0, 0));
 
           if (cur.right != prev.right)
             for (uint8_t row = 0; row < rows; row++)
               it.range(row * len, row * len + q1) =
-                cur.right == 1 ? ESPColor(0, 0, 255) : (cur.right == 0 ? ESPColor::BLACK : ESPColor(255, 0, 0));
+                cur.right == 1 ? ESPColor(0, 0, 255) : (cur.right == 0 ? COLOR_BLACK : ESPColor(255, 0, 0));
 
           if (cur.middle != prev.middle)
             for (uint8_t row = 0; row < rows; row++)
               it.range(row * len + q1, row * len + q3) =
-                cur.middle ? ESPColor::WHITE : ESPColor::BLACK;
+                cur.middle ? COLOR_WHITE : COLOR_BLACK;
 
     - addressable_lambda:
         name: "Warning"
@@ -566,7 +566,7 @@ light:
           uint16_t velocity = id(kitchen_light_velocity);
 
           if (initial_run)
-            it.all() = ESPColor::BLACK;
+            it.all() = COLOR_BLACK;
 
           heat[0] = random(64, max_heat);
 
