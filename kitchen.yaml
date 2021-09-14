@@ -163,6 +163,8 @@
 # total resistance from PS to light box: 0.26 Ohm
 # voltage drop from PS to LED strip:
 #   0.26 Ohm * 7A + 0.08 Ohm * 2.25A = 1.9V :-(
+#   Note: the above LED strip amperage figures seem to be about 2x higher than actual WS2815B amperages at full white
+#         (or when at least one of the three components is at 255)
 #
 # total reisstance from PS to patio hall box: 0.30 Ohm
 #
@@ -270,11 +272,11 @@ api:
         - script.execute: ring_alarm
     - service: set_light_angle
       variables:
-        angle: int
+        angle: float
       then:
         - lambda: |-
             id(kitchen_light_angle) = angle;
-            ESP_LOGI("service", "angle = %i", angle);
+            ESP_LOGI("service", "angle = %.2f", angle);
         # TODO: trigger an update here instead of polling in the effect
     - service: set_light_velocity
       variables:
@@ -293,7 +295,7 @@ web_server:
 globals:
   - id: kitchen_light_angle
     type: float
-    initial_value: '0'
+    initial_value: '0.0f'
   - id: kitchen_light_velocity
     type: float
     initial_value: '60'
@@ -439,7 +441,7 @@ light:
     # Each channel consumes about the same amount at max value + the
     # special color control in the 2815 chips means that the current depends
     # only on the brightest component value of the three at any time.
-    color_correct: [80%, 70%, 60%]
+    color_correct: [90%, 88%, 85%]
     platform: partition
     segments:
     - id: kitchen_led_strip1
@@ -529,7 +531,7 @@ light:
         lambda: |-
           static const uint8_t rows = 3;
           static const uint16_t len = it.size() / rows;
-          static const uint8_t distance = 3;
+          static const uint8_t distance = 8;
           uint16_t velocity = id(kitchen_light_velocity);
           static uint16_t angle;
           angle++;
@@ -665,14 +667,28 @@ light:
           static const uint8_t step1brightness = 64;
           static const int total_time = 2000;
           static uint16_t t;
+          static float angle = -100.0;
+          float new_angle = id(kitchen_light_angle);
 
           if (initial_run)
             t = 0;
 
-          if (t > total_time / 30)
+          if (t > total_time / 30 && angle == new_angle)
             return;
 
           uint16_t pos = (int) t++ * 2 * len * 50 / total_time;
+
+          static uint8_t a[rows];
+          if (angle != new_angle) {
+            angle = new_angle;
+
+            if (angle == 0.0f)
+              for (uint8_t row = 0; row < rows; row++)
+                a[row] = 0;
+            else
+              for (uint8_t row = 0; row < rows; row++)
+                a[row] = clamp(fabsf(row - (rows - 1) * 0.5 - angle), 0.0, 2.0) * 50.0;
+          }
 
           for (uint8_t i = 0; i < len; i++) {
             uint8_t v;
@@ -690,7 +706,7 @@ light:
             }
 
             for (uint8_t row = 0; row < rows; row++)
-              it[len - 1 - i + row * len] = current_color * v;
+              it[len - 1 - i + row * len] = current_color * v * (uint8_t) (255 - a[row]);
           }
 
   - name: "Kitchen over-sink light"
