@@ -12,7 +12,7 @@
 #                          sensors SCL - 27                   0 - 
 #                          led strip 1 - 14                   2 - 
 #                          led strip 2 - 12                  15 - led strip power - (to mosfet)
-#                                        GND                 13 - PIR in (sig-4K3-gpio) (-6K8-GND disconnected)
+#                                        GND                 13 - PIR in (sig-4K3-gpio) (-6K8-GND disconnected.. for testing if the issue was with the pulldown?)
 #
 #   fixed cables: GND (black), 12V (red), LED strip - (black)
 #   Missing on this board: TX (1), RX (3), 5V, gpio 21?
@@ -114,6 +114,8 @@ esphome:
 
 wifi:
   networks:
+    - ssid: !secret wifi_ssid_patio
+      password: !secret wifi_password
     - ssid: !secret wifi_ssid1
       password: !secret wifi_password
     - ssid: !secret wifi_ssid2
@@ -376,9 +378,16 @@ binary_sensor:
     # Side potentiometer sets the inactivity timeout and is turned all the way to the left (CCW)
     # but this still has a timeout of about 7-8 seconds.
     # Trigger mode set to H (non-default) or repeat-trigger, i.e. BISS0001's A pin at 3.3V
+    #
+    # Debug notes so far:
+    #   * lots of false positives on pin, but goes HIGH only when ESP32 reads LOW, ie. after the 5s delay?
+    #   * external pulldown disconnected for now..
+    #   * can't set up an ADC on pin 13 because ADC2 not available if wifi in use
+    #   * at pin 13 multimeter read 0.7mV at no motion, 2.869V when motion, but has the same false positives as the ESP32 reads
+    #   * read 0.1mV vs 3.286V at PIR output when PIR disconnected from board, no false positives...
     pin:
       number: 13
-      mode: INPUT_PULLDOWN
+      mode: INPUT
     # Not the greatest solution, but should work for now
     filters:
       delayed_off: 5s

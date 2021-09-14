@@ -10,9 +10,9 @@
 #                           MQ-7 input - 34                 GND
 # (-4K7-gpio -4K7-gnd) kitchen lght sw - 35                 GND
 #                          led strip 1 - 25     Lolin D32    19 - MISO to CS5460A's SDO
-#                          led strip 2 - 26                  23 - MOSI to CS5460A's SDI
+#         temp unused,     led strip 2 - 26                  23 - MOSI to CS5460A's SDI
 #                          led strip 3 - 27                  18 - SCK to CS5460A's SCLK
-#                                      - 14                   5 - kitchen light power supply mosfet gate (drain to kitchen light -, source to GND)
+#                temp led strip 3      - 14                   5 - kitchen light power supply mosfet gate (drain to kitchen light -, source to GND)
 #                                      - 12                  3V
 #                                      - 13                  17 - to potential oversink light mosfet gate (oversink yellow)
 #                                        5V                  16 - 
@@ -191,6 +191,8 @@ esphome:
     - output.turn_off: relay_6_close
     - output.turn_off: relay_7_open
     - output.turn_off: relay_7_close
+    - output.turn_on: kitchen_light_power
+    - lambda: pinMode(26, INPUT); # Shorted to pin 14 on current board so must be an input... might actually also be shorted to GND somehow..
     - output.turn_off: current_select_bit0
     - output.turn_off: current_select_bit1
     - output.turn_off: current_select_bit2
@@ -324,6 +326,9 @@ output:
   - id: current_select_bit2
     platform: gpio
     pin: 0
+  - id: kitchen_light_power
+    platform: gpio
+    pin: 5
   # current_select_bit3 wired to GND
   # cx: relay x close coil
   # ox: relay x open coil
@@ -403,10 +408,12 @@ output:
       mcp23xxx: expander
       number: 8
 
-power_supply:
-  - id: kitchen_light_power
-    pin: 5
-    enable_time: 0s
+# Disabled for now to see if it is the disabling of GND to the LED strip (while leaving it connected to 12V on the + side) that fries the ESP32, possibly by pulling the
+# signal pins high with a very low current? it seemed like the ESP32 burnt up after 12h or so
+#power_supply:
+#  - id: kitchen_light_power
+#    pin: 5
+#    enable_time: 0s
 
 light:
   - name: "Kitchen LED strip 1"
@@ -419,7 +426,7 @@ light:
     internal: yes
   - name: "Kitchen LED strip 2"
     id: kitchen_led_strip2
-    pin: 26
+    pin: 14
     chipset: WS2812B
     num_leds: 90
     rgb_order: GRB
@@ -435,7 +442,7 @@ light:
     internal: yes
   - name: "Kitchen light"
     id: kitchen_light
-    power_supply: kitchen_light_power
+    #power_supply: kitchen_light_power
     # Do we want this for all effects or only for normal lighting?
     # Use this to limit the power demand to the ~72W that the PS is rated for.
     # Each channel consumes about the same amount at max value + the
