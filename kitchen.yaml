@@ -335,72 +335,72 @@ output:
   - id: relay_1_close
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 7
   - id: relay_1_open
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 6
   - id: relay_2_close
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 5
   - id: relay_2_open
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 4
   - id: relay_3_close
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 3
   - id: relay_3_open
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 2
   - id: relay_4_close
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 1
   - id: relay_4_open
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 0
   - id: relay_5_close
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 13
   - id: relay_5_open
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 12
   - id: relay_6_close
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 11
   - id: relay_6_open
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 10
   - id: relay_7_close
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 9
   - id: relay_7_open
     platform: gpio
     pin:
-      mcp23017: expander
+      mcp23xxx: expander
       number: 8
 
 power_supply:
