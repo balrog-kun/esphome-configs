@@ -243,16 +243,19 @@ script:
       # TODO: restre old extractor state, don't turn off blindly
       - switch.turn_off: bathroom_extractor
       # TODO: restore light1 state
+  # TODO: automatically turn on bathroom lights when movement inside, maybe in nightlight mode
   - id: on_door_close
     then:
       - if:
           condition:
-            # TODO: check all three lights when connected
-            light.is_off: bathroom_light2
+            or:
+            - light.is_on: bathroom_light1
+            - light.is_on: bathroom_light2
+            - light.is_on: bathroom_light3
           then:
-            - light.turn_on: bathroom_light1
-      - delay: 10s
-      - switch.turn_on: bathroom_extractor
+            #- light.turn_on: bathroom_light1
+            - delay: 10s
+            - switch.turn_on: bathroom_extractor
   - id: ring_alarm
     then:
       - if:
