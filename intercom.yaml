@@ -143,9 +143,9 @@ ota:
 web_server:
   port: 80
 
-time:
-  - id: hatime
-    platform: homeassistant
+#time:
+#  - id: hatime
+#    platform: homeassistant
 
 interval:
   - interval: 1s
@@ -155,11 +155,11 @@ interval:
           wifi.connected:
         then:
         - output.turn_on: green_led
-        - output.set_level:
-            id: green_led
-            level: !lambda |-
-              int hour = id(hatime).now().hour;
-              return (hour >= 23 || hour < 9) ? 0.05 : 1.0;
+        #- output.set_level:
+        #    id: green_led
+        #    level: !lambda |-
+        #      int hour = id(hatime).now().hour;
+        #      return (hour >= 23 || hour < 9) ? 0.05 : 1.0;
         - delay: 50ms
         - output.turn_off: green_led
         else:
