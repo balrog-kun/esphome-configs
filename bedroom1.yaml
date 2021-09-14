@@ -1,0 +1,399 @@
+# vim: et:ts=2:sw=2
+#
+#                                        3V                 GND
+#                                        EN               (1)TX -
+#                                      - VP(36)           (3)RX -
+#                                      - VN(39)              3V - 
+#                     (to BME280+) SCL - 32                  22 -
+#                 Shutters motor SSR 2 - 33                  21 -
+#                          ZC detect 2 - 34                 GND
+#                          ZC detect 1 - 35                 GND
+#                 Shutters motor SSR 1 - 25     Lolin D32    19 -
+#  (10k PD) Relay 1 coil 2 MOSFET gate - 26                  23 -
+#  (10k PD) Relay 1 coil 1 MOSFET gate - 27                  18 -
+#                    Light MOSFET gate - 14                   5 - light switch B, note: outputs PWM at boot?
+#  (10k PD) Relay 2 coil 2 MOSFET gate - 12                  3V
+#  (10k PD) Relay 2 coil 1 MOSFET gate - 13                  17 - PIR input
+#                                        5V                  16 -
+#                                        GND                  4 -
+#                                                             0 - light switch A (6.8k PU to 3.3V) note: outputs PWM at boot and internal PU? -- actually NC!
+#                                                           GND
+#                                                             2 -
+#                                                            15 - SDA (to BME280+)
+#
+# HV board: https://www.circuit-diagram.org/editor/c/2bf7f3356bca491b870d6dd15af2cd30
+#
+# 6-wire cables:
+#   To HV board male:
+#     white  Shutters motor SSR 1 (brown 220V cable)
+#     green  Shutters motor SSR 2 (black 220V cable)
+#     yellow ZC detect 1
+#     gray   ZC detect 2
+#     blue   GND
+#     red    3.3V
+#   To HV board female:
+#     white  Relay 2 coil 1
+#     green  Relay 2 coil 2
+#     yellow Relay 1 coil 1
+#     gray   Relay 1 coil 2
+#     blue   GND (future relay 3?)
+#     red    NC  (future relay 3?)
+#   To light:
+#     black  GND
+#     black  GND
+#     black  GND
+#     red    light-
+#     red    light-
+#     red    light-
+#   To switch A (by the door -- can't ever be connected turns out, conduit stuck):
+#     1      light switch A
+#     2      NC
+#     3      NC
+#     4      NC
+#     5      GND
+#     6      NC
+#   To switch B (by the window -- to be extended):
+#     1      light switch B
+#     2      GND
+#     3      NC
+#     4      NC
+#     5      NC
+#     6      NC
+#     7      NC
+#     8      NC
+#   To PIR:
+#     1      3.3V
+#     2      PIR in
+#     3      GND
+#   To I2C:
+#     1      SCL
+#     2      SDA
+#     3      GND
+#     4      3.3V
+#
+# Cables between switch A and socket 2 (i.e. living room and bedroom 1):
+#   * L (black)
+#   * N (blue)
+#   * 12V+ (black, longer)
+#   * GND (black)
+#
+# Cables between socket 2, switch B and the node:
+#   red thin  N   1blue at board, blue at motor
+#   blue      L   2brown at board
+#   blue      L1  1blue at board
+#   blue      L2  2blue at board
+#   ground    GND 1black thin at board, ground at motor
+#             LIT 2red thin at board                 to light negative (blue)
+#   black     12V                                    to light positive (blue)
+#
+# SSRs are rated 4-6V for switching on but seems to work with 3.3V, especially the clones
+# bi-stable relays are rated 3.5V for turn-on but might work too.. <-- but they do
+#
+# In total we've got about 10 GPI's/GPIO's left
+#
+# motor limit switch adjust knob:
+#   yellow is for downwards movement, closing, brown cable, SSR 1, gpio 25
+#   grey is for upwards movement, opening, black cable, SSR 2, gpio 33
+#
+# motor power usage on downwards motion is around 112 W
+#
+esphome:
+  name: bedroom1
+  platform: ESP32
+  board: lolin32
+  on_boot:
+    priority: 700
+    then:
+    - output.turn_off: relay_1_coil_1
+    - output.turn_off: relay_1_coil_2
+    - output.turn_off: relay_2_coil_1
+    - output.turn_off: relay_2_coil_2
+    - output.turn_off: shutters_motor_ssr_1
+    - output.turn_off: shutters_motor_ssr_2
+    - cover.stop: bedroom1_shutters
+    - delay: 3s
+    - lambda: id(cap_loaded) = true;
+
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid1
+      password: !secret wifi_password
+    - ssid: !secret wifi_ssid2
+      password: !secret wifi_password
+
+  manual_ip:
+    static_ip: 10.0.5.17
+    gateway: 10.0.6.1
+    subnet: 255.255.252.0
+    dns1: 10.0.6.1
+    dns2: 8.8.8.8
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Bedroom 1 Fallback Hotspot"
+    password: !secret ap_password
+    ap_timeout: 2min
+
+  # Work around the GPIO36 issue
+  #power_save_mode: none
+
+# Disable logging
+logger:
+  baud_rate: 0
+
+# Enable Home Assistant API
+api:
+  # Don't reboot if no connection to API
+  reboot_timeout: 0s
+  services:
+    - service: alarm
+      then:
+        - script.execute: ring_alarm
+
+ota:
+  password: !secret ota_password
+
+web_server:
+  port: 80
+
+globals:
+  - id: cap_loaded
+    type: bool
+    initial_value: 'false'
+  - id: relay_update_value
+    type: int
+    initial_value: '0'
+  - id: relay_update_mask
+    type: int
+    initial_value: '0'
+  - id: relay_update_tmp_output
+    type: output::BinaryOutput *
+  - id: shutters_speed
+    type: int
+    initial_value: '100'
+
+output:
+  - id: bedroom1_light_gpio
+    platform: ledc
+    pin: 14
+  - id: relay_1_coil_1
+    platform: gpio
+    pin: 27
+  - id: relay_1_coil_2
+    platform: gpio
+    pin: 26
+  - id: relay_2_coil_1
+    platform: gpio
+    pin: 13
+  - id: relay_2_coil_2
+    platform: gpio
+    pin: 12
+  - id: shutters_motor_ssr_1
+    platform: gpio
+    pin: 25
+  - id: shutters_motor_ssr_2
+    platform: gpio
+    pin: 33
+  #- id: shutters_motor_ssr_2
+  #  platform: ac_dimmer
+  #  gate_pin: 33
+  #  zero_cross_pin:
+  #    number: 35
+  #    mode: INPUT_PULLUP
+  #  method: leading
+  #  init_with_half_cycle: true
+
+# do the interlock thing?!! also in kitchen node?
+
+light:
+  - name: "Bedroom 1 light"
+    id: bedroom1_light
+    output: bedroom1_light_gpio
+    platform: monochromatic
+
+script:
+  - id: ring_alarm
+    then:
+      - if:
+          condition:
+            not:
+              script.is_running: ring_alarm
+          then:
+            - light.toggle: bedroom1_light
+            - delay: 400ms
+            - light.toggle: bedroom1_light
+            - delay: 1s
+            - light.toggle: bedroom1_light
+            - delay: 400ms
+            - light.toggle: bedroom1_light
+            - delay: 1s
+            - light.toggle: bedroom1_light
+            - delay: 400ms
+            - light.toggle: bedroom1_light
+            - delay: 1s
+            - light.toggle: bedroom1_light
+            - delay: 400ms
+            - light.toggle: bedroom1_light
+
+  - id: cap_reload
+    then:
+    - lambda: id(cap_loaded) = false;
+    - delay: 1s
+    - lambda: id(cap_loaded) = true;
+
+  - id: relay_update_run
+    then:
+    - while:
+        condition:
+          lambda: return id(relay_update_mask) > 0;
+        then:
+          - wait_until:
+              lambda: return id(cap_loaded);
+          - script.execute: cap_reload
+          - lambda: |-
+              const static int num = 2;
+              const static struct {
+                output::BinaryOutput *ops[2];
+                switch_::Switch *component;
+              } relays[num] = {
+                /* 1.5mm2 cable, 16A relay */
+                { id(relay_1_coil_2), id(relay_1_coil_1), id(bedroom1_socket1) },
+                /* 1.5mm2 cable, 16A relay */
+                { id(relay_2_coil_2), id(relay_2_coil_1), id(bedroom1_socket2) },
+              };
+              unsigned int i, op;
+
+              for (i = 0; i < num && !(id(relay_update_mask) & (1 << i)); i++);
+              if (i == num)
+                return;
+
+              id(relay_update_mask) = (unsigned short) id(relay_update_mask) & ~(1 << i) & ((1 << num) - 1);
+              op = ((unsigned short) id(relay_update_value) >> i) & 1;
+              id(relay_update_tmp_output) = relays[i].ops[op];
+              id(relay_update_tmp_output)->turn_on();
+              relays[i].component->publish_state(op == 1);
+          - delay: 50ms
+          - lambda: |-
+              id(relay_update_tmp_output)->turn_off();
+
+  - id: relay_update
+    then:
+    - if:
+        condition:
+          not:
+            script.is_running: relay_update_run
+        then:
+          script.execute: relay_update_run
+
+cover:
+  - platform: time_based
+    name: "Bedroom 1 shutters"
+    id: bedroom1_shutters
+    device_class: shutter
+    open_duration: 10s # actually about 7s
+    open_action:
+    - output.turn_off: shutters_motor_ssr_1
+    - output.turn_on: shutters_motor_ssr_2
+    #- lambda: id(shutters_motor_ssr_2).set_level(0.01 * id(shutters_speed));////
+    close_duration: 10s # actually about 7s
+    close_action:
+    - output.turn_off: shutters_motor_ssr_2
+    - output.turn_on: shutters_motor_ssr_1
+    stop_action:
+    - output.turn_off: shutters_motor_ssr_1
+    - output.turn_off: shutters_motor_ssr_2
+    has_built_in_endstop: false
+
+# TODO:
+#   PIR, BME280?
+binary_sensor:
+  - name: "Bedroom 1 switch B"
+    id: bedroom1_switch_b
+    on_state:
+      then:
+      - light.toggle: bedroom1_light
+    platform: gpio
+    pin:
+      number: 5
+      mode: INPUT_PULLUP
+    filters:
+      delayed_on_off: 40ms
+
+switch:
+  - name: "Bedroom 1 socket 1"
+    id: bedroom1_socket1
+    icon: 'mdi:power-socket-de'
+    platform: template
+    turn_on_action:
+      then:
+      - lambda: id(relay_update_value) |= 1 << 0;
+      - lambda: id(relay_update_mask) |= 1 << 0;
+      - script.execute: relay_update
+    turn_off_action:
+      then:
+      - lambda: id(relay_update_value) &= ~(1 << 0);
+      - lambda: id(relay_update_mask) |= 1 << 0;
+      - script.execute: relay_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_OFF
+  - name: "Bedroom 1 socket 2"
+    id: bedroom1_socket2
+    icon: 'mdi:power-socket-de'
+    platform: template
+    turn_on_action:
+      then:
+      - lambda: id(relay_update_value) |= 1 << 1;
+      - lambda: id(relay_update_mask) |= 1 << 1;
+      - script.execute: relay_update
+    turn_off_action:
+      then:
+      - lambda: id(relay_update_value) &= ~(1 << 1);
+      - lambda: id(relay_update_mask) |= 1 << 1;
+      - script.execute: relay_update
+    optimistic: no
+    restore_state: yes
+    # restore_mode: RESTORE_DEFAULT_OFF
+  - name: "Tmp up"
+    platform: template
+    turn_on_action:
+    - lambda: id(shutters_speed)++;
+    - lambda: ESP_LOGI("speed", "new val %i", id(shutters_speed));
+    assumed_state: false
+  - name: "Tmp down"
+    platform: template
+    turn_on_action:
+    - lambda: id(shutters_speed)--;
+    - lambda: ESP_LOGI("speed", "new val %i", id(shutters_speed));
+    assumed_state: false
+
+i2c:
+  sda: 15
+  scl: 32
+  scan: true
+  frequency: 400kHz
+
+sensor:
+  - id: zc_count_motor
+    internal: yes
+    pin:
+      number: 34
+      mode: INPUT_PULLUP
+    platform: pulse_counter
+    update_interval: 10s
+  - name: "Bedroom 1 node signal"
+    platform: wifi_signal
+    filters:
+      - sliding_window_moving_average:
+          window_size: 16
+          send_every: 16
+          send_first_at: 8
+      - delta: 1
+    update_interval: 1min
+  - name: "Bedroom 1 node uptime"
+    platform: uptime
+    update_interval: 1h
+
+text_sensor:
+  - name: "Bedroom 1 node version"
+    platform: version
