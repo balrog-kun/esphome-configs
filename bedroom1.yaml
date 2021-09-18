@@ -171,6 +171,12 @@ globals:
   - id: shutters_speed
     type: int
     initial_value: '100'
+  - id: shutters_last_move_close
+    type: bool
+    initial_value: 'false'
+  - id: shutters_last_move_time
+    type: int
+    initial_value: '0'
 
 output:
   - id: bedroom1_light_gpio
@@ -285,6 +291,29 @@ script:
         then:
           script.execute: relay_update_run
 
+  - id: on_light_switch
+    then:
+    - cover.stop: bedroom1_shutters
+    - light.toggle: bedroom1_light
+    - if:
+        condition:
+          # Implement something similar to on_click but independent of whether
+          # the transitions are ON->OFF->ON or OFF->ON->OFF.  max_length = 1s
+          lambda: |-
+            uint32_t now = millis();
+            uint32_t diff = now - id(shutters_last_move_time);
+            id(shutters_last_move_time) = now;
+            return diff > 50 && diff < 1000;
+        then:
+        - if:
+            condition:
+            - lambda: return id(shutters_last_move_close);
+            then:
+            - cover.open: bedroom1_shutters
+            else:
+            - cover.close: bedroom1_shutters
+        - lambda: id(shutters_last_move_close) = !id(shutters_last_move_close);
+
 cover:
   - platform: time_based
     name: "Bedroom 1 shutters"
@@ -311,13 +340,20 @@ binary_sensor:
     id: bedroom1_switch_b
     on_state:
       then:
-      - light.toggle: bedroom1_light
+      - script.execute: on_light_switch
     platform: gpio
     pin:
       number: 5
       mode: INPUT_PULLUP
     filters:
       delayed_on_off: 40ms
+  - id: bedroom1_switch_a
+    on_state:
+      then:
+      - script.execute: on_light_switch
+    internal: yes
+    platform: homeassistant
+    entity_id: binary_sensor.bedroom_1_switch_a
 
 switch:
   - name: "Bedroom 1 socket 1"
