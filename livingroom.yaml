@@ -43,6 +43,22 @@ api:
       then:
         - script.execute: ring_alarm
 
+# Time lapse lighting every 15 mins
+#interval:
+#  - interval: 15min
+#    then:
+#      - lambda: |-
+#          id(lv_lights_timelapse_override) = true;
+#      - light.turn_off: lv_light1
+#      - light.turn_off: lv_light2
+#      - light.turn_on: lv_light3
+#      - light.turn_on: lv_light4
+#      - light.turn_off: lv_light5
+#      - delay: 62s
+#      - lambda: |-
+#          id(lv_lights_timelapse_override) = false;
+#          id(lv_light_update).execute();
+
 ota:
   password: !secret ota_password
 
@@ -139,6 +155,8 @@ globals:
   - id: lv_lights_num
     initial_value: '5'
     type: int
+  - id: lv_lights_timelapse_override
+    type: bool
 script:
   - id: lv_light_update
     then:
@@ -146,6 +164,9 @@ script:
           static light::LightState *lights[] = { id(lv_light1), id(lv_light2), id(lv_light3), id(lv_light4), id(lv_light5) };
           bool on[] = { false, false, false, false, false };
           int num = id(lv_lights_num);
+
+          if (id(lv_lights_timelapse_override))
+            return;
 
           for (int offset = 0; offset < id(lv_light_power); offset++) {
             int pos = id(lv_light_pos) - id(lv_light_power) / 2 + offset;
