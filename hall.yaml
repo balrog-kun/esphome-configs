@@ -333,8 +333,7 @@ binary_sensor:
     platform: gpio
     pin:
       number: 39
-      # Is there even a pulldown on this pin?
-      mode: INPUT_PULLDOWN
+      mode: INPUT # No pulldown available
     filters:
       delayed_on_off: 40ms
   - name: "Bathroom entrance switch 1"
@@ -396,9 +395,8 @@ binary_sensor:
       - switch.toggle: bathroom_extractor
     platform: gpio
     pin:
-      # Is there even a pulldown on this pin?
       number: 36
-      mode: INPUT_PULLDOWN
+      mode: INPUT # No pulldown available
     filters:
       delayed_on_off: 40ms
   - name: "Bathroom door"
@@ -406,9 +404,8 @@ binary_sensor:
     device_class: door
     platform: gpio
     pin:
-      # Is there even a pulldown on this pin?
       number: 34
-      mode: INPUT_PULLDOWN
+      mode: INPUT # No pulldown available
     filters:
       delayed_on_off: 40ms
     on_press:
@@ -510,6 +507,7 @@ sensor:
     attenuation: 11db # 0V - 3.9V
     unit_of_measurement: '%'
     accuracy_decimals: 0
+    device_class: ""  # Doesn't match any predefined class
     filters:
       - calibrate_linear:
           - 0 -> 0

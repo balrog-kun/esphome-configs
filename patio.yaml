@@ -104,7 +104,7 @@
 esphome:
   name: patio
   platform: ESP32
-  board: lolin32-lite
+  board: lolin32_lite
   on_boot:
     priority: 700
     then:
@@ -415,7 +415,8 @@ binary_sensor:
     platform: gpio
     pin:
       number: 35
-      mode: INPUT_PULLUP
+      # No pull-up available on this one
+      mode: INPUT
       inverted: yes
     filters:
       delayed_on_off: 40ms
@@ -436,6 +437,7 @@ sensor:
     attenuation: 11db # 0V - 3.9V
     unit_of_measurement: '%'
     accuracy_decimals: 0
+    device_class: ""  # Doesn't match any predefined class
     filters:
     - calibrate_linear:
       - 0 -> 0
@@ -453,7 +455,7 @@ sensor:
     platform: adc
     pin: 34
     attenuation: 11db # 0V - 3.9V
-    unit_of_measurement: 'ºC'
+    unit_of_measurement: '°C'
     accuracy_decimals: 0
     filters:
     # Filter out 0.0V readings meaning the NTC most likely isn't connected

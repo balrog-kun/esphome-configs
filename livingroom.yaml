@@ -395,6 +395,7 @@ sensor:
     attenuation: 6db # 0V - 2.2V for now
     unit_of_measurement: 'ppm'
     accuracy_decimals: 0
+    device_class: carbon_monoxide
     filters:
       - sliding_window_moving_average:
           window_size: 30
@@ -519,6 +520,7 @@ sensor:
     attenuation: 11db # 0V - 3.9V
     unit_of_measurement: '%'
     accuracy_decimals: 0
+    device_class: ""  # Doesn't match any predefined class
     filters:
       - calibrate_linear:
           - 0 -> 0
