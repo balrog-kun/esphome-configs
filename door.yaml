@@ -256,7 +256,7 @@ sensor:
     id: door_angle
     platform: template
     icon: 'mdi:angle-acute'
-    unit_of_measurement: 'º'
+    unit_of_measurement: '°'
     accuracy_decimals: 1
 
   - name: "Door node signal"

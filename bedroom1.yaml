@@ -414,7 +414,7 @@ sensor:
     internal: yes
     pin:
       number: 34
-      mode: INPUT_PULLUP
+      mode: INPUT
     platform: pulse_counter
     update_interval: 10s
   - name: "Bedroom 1 node signal"
