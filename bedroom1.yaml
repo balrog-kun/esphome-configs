@@ -2,16 +2,16 @@
 #
 #                                        3V                 GND
 #                                        EN               (1)TX -
-#                                      - VP(36)           (3)RX -
-#                                      - VN(39)              3V - 
-#                     (to BME280+) SCL - 32                  22 -
-#                 Shutters motor SSR 2 - 33                  21 -
+#                    Switch B Button 2 - VP(36)           (3)RX -
+#                                      - VN(39)              3V -
+#                     (to BME280+) SCL - 32                  22 - Switch B Button 2 LED
+#                 Shutters motor SSR 2 - 33                  21 - Switch B Button 3 LED
 #                          ZC detect 2 - 34                 GND
 #                          ZC detect 1 - 35                 GND
-#                 Shutters motor SSR 1 - 25     Lolin D32    19 -
-#  (10k PD) Relay 1 coil 2 MOSFET gate - 26                  23 -
-#  (10k PD) Relay 1 coil 1 MOSFET gate - 27                  18 -
-#                    Light MOSFET gate - 14                   5 - light switch B, note: outputs PWM at boot?
+#                 Shutters motor SSR 1 - 25     Lolin D32    19 - Switch B Button 1
+#  (10k PD) Relay 1 coil 2 MOSFET gate - 26                  23 - Switch B Button 1 LED
+#  (10k PD) Relay 1 coil 1 MOSFET gate - 27                  18 - Switch B Button 3
+#                    Light MOSFET gate - 14                   5 - (onboard LED)
 #  (10k PD) Relay 2 coil 2 MOSFET gate - 12                  3V
 #  (10k PD) Relay 2 coil 1 MOSFET gate - 13                  17 - PIR input
 #                                        5V                  16 -
@@ -53,14 +53,14 @@
 #     5      GND
 #     6      NC
 #   To switch B (by the window -- to be extended):
-#     1      light switch B
-#     2      GND
-#     3      NC
-#     4      NC
-#     5      NC
-#     6      NC
-#     7      NC
-#     8      NC
+#     1 pink       3.3V
+#     2 pinkwhite  GND
+#     3 blue       Button 3
+#     4 bluewhite  Button 2
+#     5 green      Button 1
+#     6 greenwhite Button 3 LED
+#     7 brown      Button 2 LED
+#     8 brownwhite Button 1 LED
 #   To PIR:
 #     1      3.3V
 #     2      PIR in
@@ -89,13 +89,78 @@
 # SSRs are rated 4-6V for switching on but seems to work with 3.3V, especially the clones
 # bi-stable relays are rated 3.5V for turn-on but might work too.. <-- but they do
 #
-# In total we've got about 10 GPI's/GPIO's left
+# In total we've got about 7 GPI's/GPIO's left:
+#   GPIO 5 (onboard LED)
+#   GPIO 1 (TX)
+#   GPIO 3 (RX)
+#   GPI 39 (VN)
+#   GPIO16
+#   GPIO 4
+#   GPIO 2
+#   (GPIO0 - not gonna be used either, but connected to Switch A connector for now)
 #
 # motor limit switch adjust knob:
 #   yellow is for downwards movement, closing, brown cable, SSR 1, gpio 25
+#     turn left to lower the lower limit, turn right to rise the lower limit
 #   grey is for upwards movement, opening, black cable, SSR 2, gpio 33
+#     turn right to lower the upper limit, turn left to rise the upper limit
 #
 # motor power usage on downwards motion is around 112 W
+#
+# Aliexpress AXUS touch switch:
+# JL2238 W2123 is actually TTP223-BA6 (https://datasheet.lcsc.com/szlcsc/TTP223-BA6_C80757.pdf) similar to AT42QT1010: https://cdn-shop.adafruit.com/datasheets/AT42QT1010.pdf
+# chip pinout:
+#   SNSK GND  OUT
+#   GND  3.3  3.3
+#  (AHLB)    (TOG / FAST mode..)
+#
+#  TTP223-BA6: 0.002mA
+#  AT42QT1010 in FAST mode uses 0.4mA per input
+#  AT42QT1010 in LP mode uses 0.035mA per input
+#
+# https://www.circuit-diagram.org/editor/c/88a24fedb402474d81276e8d0e0715dd
+# sensor board connector pinout, looking from the back of the device:
+#   OUT1 OUT2 OUT3
+#    X   GND  3.3V
+#
+# X could be OUT4 on the sensor board, but is connected to an unpopulated cap pad on the 3x relay board
+#
+# OUTs are 3.3V through 4.7kOhm while touch triggered, 0 when not
+#
+# * cut TOG leg on each chip (board pad connected to 3.3, but we want the chip's default which is GND)
+# * cut the trace leading to OUT (Q) so that we can control the LEDs separately, don't break the leg because it's then difficult to solder the OUT wire to it.
+#   Cut it some milimeters away from the chip, towards the 4.7kOhm resistance.
+# * connect each chip's Q to our new OUTn wires.  while old OUTn becomes LEDn.  In effect we have the following pins from the switch board:
+#   3.3V  GND   LED1  LED2  LED3  OUT1  OUT2  OUT3
+#
+# LEDn at LOW will light the blue led.
+# LEDn at HIGH will light the red led.
+# With PWM colours between BLUE and RED are possible (violet).
+# LEDn as input (hi-Z) will turn the led off.
+# Blue and red brightness (all the way to black) could be controlled with PWM if the chip was able to generate pulses of hi-Z state vs. LOW or HIGH, which
+# no chip probably does and neither do the GPIO expanders.  But a P-ch MOSFET in front of one GPIO, with gate connected to a second GPIO, should be able to
+# generate any duty cycle combination of LOW, HIGH and hi-Z hopefully?  What about an N-ch mosfet?  Or do we need 2 mosfets???
+#
+#    3.3
+#(R13,R14,R15)
+#    LEDA--BLUE--LEDB
+#    LEDB--RED --LEDC <---1k Ohm (R16, R17, R18)--> GND
+#
+#     R1/R2/R3 is also 1k Ohm connected to SNSK
+#
+#                      touchpad
+#                      R1,R2,R3(1k)
+#           GND   C6   SNSK
+#     GND              GND           LEDA               LEDB,(OUT1/2/3)
+#     R18(1k)          C3       R13,R14,R15(15k)       R19,R20,R21(4.7k)
+#    LEDC              3.3           3.3                LED1,LED2,LED3
+#
+#
+# Possible LED1,LED2, LED3 connections to ESP32:
+# GPIO1 ------ (gate)
+#                 MOSFET (drain) ----- LEDA
+# GPIO2 ----- (source)
+# when GPIO1 low, LED off, when high and GPIO2 low, blue, when high and GPIO2 high... off? hmm
 #
 esphome:
   name: bedroom1
@@ -110,9 +175,18 @@ esphome:
     - output.turn_off: relay_2_coil_2
     - output.turn_off: shutters_motor_ssr_1
     - output.turn_off: shutters_motor_ssr_2
+    - output.turn_off: switch_b_button_1_blue
+    - output.turn_off: switch_b_button_2_blue
+    - output.turn_off: switch_b_button_3_blue
     - cover.stop: bedroom1_shutters
     - delay: 3s
     - lambda: id(cap_loaded) = true;
+    - script.execute: switch_b_led_update
+    - lambda: Serial.end();
+  libraries:
+  - ESP32 AnalogWrite
+  includes:
+  - bedroom1/.piolibdeps/bedroom1/ESP32 AnalogWrite/src/analogWrite.h
 
 wifi:
   networks:
@@ -137,9 +211,11 @@ wifi:
   # Work around the GPIO36 issue
   #power_save_mode: none
 
-# Disable logging
+# Logger must be enabled for OTA logs to be available but we avoid touching
+# UART 0 because we use the RX pin for the light switch
 logger:
   baud_rate: 0
+  hardware_uart: UART1
 
 # Enable Home Assistant API
 api:
@@ -168,15 +244,38 @@ globals:
     initial_value: '0'
   - id: relay_update_tmp_output
     type: output::BinaryOutput *
+
   - id: shutters_speed
     type: int
     initial_value: '100'
   - id: shutters_last_move_close
     type: bool
     initial_value: 'false'
-  - id: shutters_last_move_time
+  - id: switch_a_state_time
     type: int
     initial_value: '0'
+  - id: switch_b_up_release_time
+    type: int
+    initial_value: '0'
+  - id: switch_b_middle_release_time
+    type: int
+    initial_value: '0'
+  - id: switch_b_down_release_time
+    type: int
+    initial_value: '0'
+  - id: switch_b_fade_pos
+    type: int
+    initial_value: '-1'
+  - id: switch_b_shutters_pos
+    type: int
+    initial_value: '-1'
+
+  - id: switch_b_led_1_attached
+    type: bool
+  - id: switch_b_led_2_attached
+    type: bool
+  - id: switch_b_led_3_attached
+    type: bool
 
 output:
   - id: bedroom1_light_gpio
@@ -196,10 +295,14 @@ output:
     pin: 12
   - id: shutters_motor_ssr_1
     platform: gpio
-    pin: 25
+    pin:
+      number: 25
+      inverted: yes
   - id: shutters_motor_ssr_2
     platform: gpio
-    pin: 33
+    pin:
+      number: 33
+      inverted: yes
   #- id: shutters_motor_ssr_2
   #  platform: ac_dimmer
   #  gate_pin: 33
@@ -208,14 +311,143 @@ output:
   #    mode: INPUT_PULLUP
   #  method: leading
   #  init_with_half_cycle: true
+  - id: switch_b_button_1_blue
+    platform: template
+    type: binary
+    write_action:
+    - lambda: |-
+        if (id(switch_b_led_1_attached)) {
+          ledcDetachPin(23);
+          id(switch_b_led_1_attached) = false;
+        }
+        if (state) {
+          pinMode(23, OUTPUT);
+          digitalWrite(23, LOW);
+        } else
+          pinMode(23, INPUT);
+  - id: switch_b_button_2_blue
+    platform: template
+    type: binary
+    write_action:
+    - lambda: |-
+        if (id(switch_b_led_2_attached)) {
+          ledcDetachPin(22);
+          id(switch_b_led_2_attached) = false;
+        }
+        if (state) {
+          pinMode(22, OUTPUT);
+          digitalWrite(22, LOW);
+        } else
+          pinMode(22, INPUT);
+  - id: switch_b_button_3_blue
+    platform: template
+    type: binary
+    write_action:
+    - lambda: |-
+        if (id(switch_b_led_3_attached)) {
+          ledcDetachPin(21);
+          id(switch_b_led_3_attached) = false;
+        }
+        if (state) {
+          pinMode(21, OUTPUT);
+          digitalWrite(21, LOW);
+        } else
+          pinMode(21, INPUT);
+  # FIXME: the following three need to be integrated with the preceding three some way..
+  #   but: outputs can only have binary and float types, not RGB,
+  #        lights, which do support RGB, have no template platform the other hand.
+  - id: switch_b_button_1_red
+    platform: template
+    type: float
+    write_action:
+    - lambda: |-
+        static uint8_t channel = ledc::next_ledc_channel++;
+        if (state == 0.0f || state == 1.0f) {
+          if (id(switch_b_led_1_attached)) {
+            ledcDetachPin(23);
+            id(switch_b_led_1_attached) = false;
+          }
 
-# do the interlock thing?!! also in kitchen node?
+          if (state == 0.0f)
+            pinMode(23, INPUT);
+          else {
+            pinMode(23, OUTPUT);
+            digitalWrite(23, HIGH);
+          }
+        } else {
+          if (!id(switch_b_led_1_attached)) {
+            ledcAttachPin(23, channel);
+            ledcSetup(channel, 5000, 8);
+            id(switch_b_led_1_attached) = true;
+          }
+          ledcWrite(channel, (int) (state * 255.99f));
+        }
+  - id: switch_b_button_2_red
+    platform: template
+    type: float
+    write_action:
+    - lambda: |-
+        static uint8_t channel = ledc::next_ledc_channel++;
+        if (state == 0.0f || state == 1.0f) {
+          if (id(switch_b_led_2_attached)) {
+            ledcDetachPin(22);
+            id(switch_b_led_2_attached) = false;
+          }
+
+          if (state == 0.0f)
+            pinMode(22, INPUT);
+          else {
+            pinMode(22, OUTPUT);
+            digitalWrite(22, HIGH);
+          }
+        } else {
+          if (!id(switch_b_led_2_attached)) {
+            ledcAttachPin(22, channel);
+            ledcSetup(channel, 5000, 8);
+            id(switch_b_led_2_attached) = true;
+          }
+          ledcWrite(channel, (int) (state * 255.99f));
+        }
+  - id: switch_b_button_3_red
+    platform: template
+    type: float
+    write_action:
+    - lambda: |-
+        static uint8_t channel = ledc::next_ledc_channel++;
+        if (state == 0.0f || state == 1.0f) {
+          if (id(switch_b_led_3_attached)) {
+            ledcDetachPin(21);
+            id(switch_b_led_3_attached) = false;
+          }
+
+          if (state == 0.0f)
+            pinMode(21, INPUT);
+          else {
+            pinMode(21, OUTPUT);
+            digitalWrite(21, HIGH);
+          }
+        } else {
+          if (!id(switch_b_led_3_attached)) {
+            ledcAttachPin(21, channel);
+            ledcSetup(channel, 5000, 8);
+            id(switch_b_led_3_attached) = true;
+          }
+          ledcWrite(channel, (int) (state * 255.99f));
+        }
+
+# do the interlock thing between the two coils in each relay?!! also in kitchen node?
 
 light:
   - name: "Bedroom 1 light"
     id: bedroom1_light
     output: bedroom1_light_gpio
     platform: monochromatic
+    on_turn_on:
+      then:
+      - script.execute: switch_b_led_update
+    on_turn_off:
+      then:
+      - script.execute: switch_b_led_update
 
 script:
   - id: ring_alarm
@@ -291,7 +523,138 @@ script:
         then:
           script.execute: relay_update_run
 
-  - id: on_light_switch
+  - id: light_up
+    then:
+    - lambda: id(switch_b_fade_pos) = 2;
+    - while:
+        condition:
+          lambda: |-
+            if (id(bedroom1_switch_b_up).state) {
+              auto vals = id(bedroom1_light)->remote_values;
+              if (!vals.is_on() || vals.get_brightness() <= 0.99f)
+                /// TODO: if above X% just set to 100% because there's no difference in brightness
+                return true;
+            }
+
+            id(switch_b_fade_pos) = -1;
+            id(switch_b_led_update).execute();
+            return false;
+        then:
+        - light.dim_relative:
+            id: bedroom1_light
+            relative_brightness: 3%
+            transition_length: 150ms
+        - script.execute: switch_b_led_update
+        - lambda: id(switch_b_fade_pos)--;
+        - delay: 150ms
+
+  - id: light_down
+    then:
+    - lambda: id(switch_b_fade_pos) = 2;
+    - while:
+        condition:
+          lambda: |-
+            if (id(bedroom1_switch_b_down).state) {
+              auto vals = id(bedroom1_light)->remote_values;
+              if (vals.is_on() && vals.get_brightness() >= 0.01f)
+                /// TODO: if below 3%, just turn_off to avoid a flicker at the end of the dimming
+                /// TODO: upgrade and file a bug?
+                return true;
+            }
+
+            id(switch_b_fade_pos) = -1;
+            id(switch_b_led_update).execute();
+            return false;
+        then:
+        - light.dim_relative:
+            id: bedroom1_light
+            relative_brightness: -3%
+            transition_length: 150ms
+        - script.execute: switch_b_led_update
+        - lambda: id(switch_b_fade_pos)++;
+        - delay: 150ms
+
+  - id: shutters_up_animate
+    then:
+    - lambda: id(switch_b_shutters_pos) = 2;
+    - while:
+        condition:
+          lambda: return true;
+        then:
+        - script.execute: switch_b_led_update
+        - lambda: id(switch_b_shutters_pos)--;
+        - delay: 150ms
+
+  - id: shutters_down_animate
+    then:
+    - lambda: id(switch_b_shutters_pos) = 2;
+    - while:
+        condition:
+          lambda: return true;
+        then:
+        - script.execute: switch_b_led_update
+        - lambda: id(switch_b_shutters_pos)++;
+        - delay: 150ms
+
+  - id: switch_b_led_update
+    then:
+    - lambda: |-
+        if (id(switch_b_fade_pos) == 0)
+          id(switch_b_fade_pos) = 3;
+        else if (id(switch_b_fade_pos) == 4)
+          id(switch_b_fade_pos) = 1;
+
+        if (id(switch_b_shutters_pos) == 0)
+          id(switch_b_shutters_pos) = 3;
+        else if (id(switch_b_shutters_pos) == 4)
+          id(switch_b_shutters_pos) = 1;
+
+        if (id(switch_b_fade_pos) == 1)
+          id(switch_b_button_1_red).set_level(1.0f);
+        else if (id(switch_b_fade_pos) == -1 && id(bedroom1_switch_b_up).state) {
+          auto vals = id(bedroom1_light)->remote_values;
+          if (vals.is_on() && vals.get_brightness() > 0.99f)
+            id(switch_b_button_1_red).set_level(1.0f);
+          else
+            id(switch_b_button_1_red).set_level(0.5f);
+        } else if (id(switch_b_shutters_pos) == 1)
+          id(switch_b_button_1_red).set_level(0.5f);
+        else
+          id(switch_b_button_1_blue).turn_off();
+
+        if (id(switch_b_fade_pos) == 2)
+          id(switch_b_button_2_red).set_level(1.0f);
+        else if (id(switch_b_fade_pos) == -1 && (id(bedroom1_switch_b_up).state || id(bedroom1_switch_b_down).state)) {
+          auto vals = id(bedroom1_light)->remote_values;
+          if ((id(bedroom1_switch_b_up).state && vals.is_on() && vals.get_brightness() > 0.99f) ||
+            (id(bedroom1_switch_b_down).state && (!vals.is_on() || vals.get_brightness() < 0.01f)))
+            id(switch_b_button_2_red).set_level(1.0f);
+          else
+            id(switch_b_button_2_blue).turn_off();
+        } else if (id(switch_b_shutters_pos) == 2 || id(bedroom1_switch_b).state)
+          id(switch_b_button_2_red).set_level(0.5f);
+        else if (!id(bedroom1_light)->remote_values.is_on())
+          id(switch_b_button_2_blue).turn_on();
+        else
+          id(switch_b_button_2_blue).turn_off();
+
+        if (id(switch_b_fade_pos) == 3)
+          id(switch_b_button_3_red).set_level(1.0f);
+        else if (id(switch_b_fade_pos) == -1 && id(bedroom1_switch_b_down).state) {
+          auto vals = id(bedroom1_light)->remote_values;
+          if (!vals.is_on() || vals.get_brightness() < 0.01f)
+            id(switch_b_button_3_red).set_level(1.0f);
+          else
+            id(switch_b_button_3_red).set_level(0.5f);
+        } else if (id(switch_b_shutters_pos) == 3)
+          id(switch_b_button_3_red).set_level(0.5f);
+        else
+          id(switch_b_button_3_blue).turn_off();
+        // TODO: ...redo the if/elses to simplify? maybe group by action instead of by LED num
+        // TODO: also animate when light in a transition triggered by HA etc.?
+        // TODO: investigate the flicker
+
+  - id: on_light_switch_a
     then:
     - cover.stop: bedroom1_shutters
     - light.toggle: bedroom1_light
@@ -301,8 +664,8 @@ script:
           # the transitions are ON->OFF->ON or OFF->ON->OFF.  max_length = 1s
           lambda: |-
             uint32_t now = millis();
-            uint32_t diff = now - id(shutters_last_move_time);
-            id(shutters_last_move_time) = now;
+            uint32_t diff = now - id(switch_a_state_time);
+            id(switch_a_state_time) = now;
             return diff > 50 && diff < 1000;
         then:
         - if:
@@ -312,7 +675,6 @@ script:
             - cover.open: bedroom1_shutters
             else:
             - cover.close: bedroom1_shutters
-        - lambda: id(shutters_last_move_close) = !id(shutters_last_move_close);
 
 cover:
   - platform: time_based
@@ -324,13 +686,23 @@ cover:
     - output.turn_off: shutters_motor_ssr_1
     - output.turn_on: shutters_motor_ssr_2
     #- lambda: id(shutters_motor_ssr_2).set_level(0.01 * id(shutters_speed));////
+    - lambda: id(shutters_last_move_close) = false;
+    - script.stop: shutters_down_animate
+    - script.execute: shutters_up_animate
     close_duration: 10s # actually about 7s
     close_action:
     - output.turn_off: shutters_motor_ssr_2
     - output.turn_on: shutters_motor_ssr_1
+    - lambda: id(shutters_last_move_close) = true;
+    - script.stop: shutters_up_animate
+    - script.execute: shutters_down_animate
     stop_action:
     - output.turn_off: shutters_motor_ssr_1
     - output.turn_off: shutters_motor_ssr_2
+    - script.stop: shutters_up_animate
+    - script.stop: shutters_down_animate
+    - lambda: id(switch_b_shutters_pos) = -1;
+    - script.execute: switch_b_led_update
     has_built_in_endstop: false
 
 # TODO:
@@ -338,19 +710,126 @@ cover:
 binary_sensor:
   - name: "Bedroom 1 switch B"
     id: bedroom1_switch_b
-    on_state:
+    on_press:
       then:
-      - script.execute: on_light_switch
+      - script.execute: switch_b_led_update
+      - if:
+          condition:
+            lambda: return id(bedroom1_shutters).current_operation != CoverOperation::COVER_OPERATION_IDLE;
+          then:
+          - cover.stop: bedroom1_shutters
+      - if:
+          condition:
+            lambda: return id(bedroom1_switch_b_up).state || (uint32_t) (millis() - id(switch_b_up_release_time)) < 300;
+          then:
+          - cover.close: bedroom1_shutters
+          else:
+          - if:
+              condition:
+                lambda: return id(bedroom1_switch_b_down).state || (uint32_t) (millis() - id(switch_b_down_release_time)) < 300;
+              then:
+              - cover.open: bedroom1_shutters
+    on_release:
+      then:
+      - script.execute: switch_b_led_update
+    on_click:
+    - min_length: 40ms
+      max_length: 800ms
+      then:
+      - if:
+          condition:
+            lambda: return id(bedroom1_shutters).current_operation == CoverOperation::COVER_OPERATION_IDLE;
+          then:
+          - light.toggle: bedroom1_light
+          - lambda: id(switch_b_middle_release_time) = millis();
+    - min_length: 800ms
+      max_length: 2000ms
+      then:
+      - if:
+          condition:
+            lambda: return id(bedroom1_shutters).current_operation == CoverOperation::COVER_OPERATION_IDLE;
+          then:
+          - switch.toggle: bedroom1_socket1
     platform: gpio
     pin:
-      number: 5
-      mode: INPUT_PULLUP
+      number: 36
+      mode: INPUT
+    filters:
+      delayed_on_off: 40ms
+  - name: "Bedroom 1 switch B Up"
+    id: bedroom1_switch_b_up
+    on_press:
+      then:
+      - if:
+          condition:
+            lambda: |-
+              return id(bedroom1_switch_b_down).state || (uint32_t) (millis() - id(switch_b_down_release_time)) < 300 ||
+                id(bedroom1_switch_b).state || (uint32_t) (millis() - id(switch_b_middle_release_time)) < 300;
+            # TODO: restore if we have a saved value!
+          then:
+          - script.execute: switch_b_led_update
+          - if:
+              condition:
+                lambda: return id(bedroom1_shutters).current_operation == CoverOperation::COVER_OPERATION_IDLE;
+              then:
+              - cover.open: bedroom1_shutters
+          else:
+          # TODO: wait for 500ms? or save current brightness then restore if we start shutters movement:w
+          - script.execute: light_up
+    on_release:
+      then:
+      - script.stop: light_up
+      - lambda: id(switch_b_fade_pos) = -1;
+      - script.execute: switch_b_led_update
+    on_click:
+    - min_length: 40ms
+      max_length: 600ms
+      then:
+      - lambda: id(switch_b_up_release_time) = millis();
+    platform: gpio
+    pin:
+      number: 19
+      mode: INPUT_PULLDOWN
+    filters:
+      delayed_on_off: 40ms
+  - name: "Bedroom 1 switch B Down"
+    id: bedroom1_switch_b_down
+    on_press:
+      then:
+      - if:
+          condition:
+            lambda: |-
+              return id(bedroom1_switch_b_up).state || (uint32_t) (millis() - id(switch_b_up_release_time)) < 300 ||
+                id(bedroom1_switch_b).state || (uint32_t) (millis() - id(switch_b_middle_release_time)) < 300;
+          then:
+          - script.execute: switch_b_led_update
+          - if:
+              condition:
+                lambda: return id(bedroom1_shutters).current_operation == CoverOperation::COVER_OPERATION_IDLE;
+              then:
+              - cover.close: bedroom1_shutters
+          else:
+          - script.execute: light_down
+    on_release:
+      then:
+      - script.stop: light_down
+      - lambda: id(switch_b_fade_pos) = -1;
+      - script.execute: switch_b_led_update
+    on_click:
+    - min_length: 40ms
+      max_length: 600ms
+      then:
+      - lambda: id(switch_b_down_release_time) = millis();
+    platform: gpio
+    pin:
+      number: 18
+      mode: INPUT_PULLDOWN
     filters:
       delayed_on_off: 40ms
   - id: bedroom1_switch_a
     on_state:
       then:
-      - script.execute: on_light_switch
+      - script.execute: on_light_switch_a
     internal: yes
     platform: homeassistant
     entity_id: binary_sensor.bedroom_1_switch_a
@@ -393,14 +872,22 @@ switch:
   - name: "Tmp up"
     platform: template
     turn_on_action:
-    - lambda: id(shutters_speed)++;
-    - lambda: ESP_LOGI("speed", "new val %i", id(shutters_speed));
+    - output.turn_off: shutters_motor_ssr_1
+    - output.turn_on: shutters_motor_ssr_2
+    - delay: 2s
+    - output.turn_off: shutters_motor_ssr_2
+    #- lambda: id(shutters_speed)++;
+    #- lambda: ESP_LOGI("speed", "new val %i", id(shutters_speed));
     assumed_state: false
   - name: "Tmp down"
     platform: template
     turn_on_action:
-    - lambda: id(shutters_speed)--;
-    - lambda: ESP_LOGI("speed", "new val %i", id(shutters_speed));
+    - output.turn_off: shutters_motor_ssr_2
+    - output.turn_on: shutters_motor_ssr_1
+    - delay: 2s
+    - output.turn_off: shutters_motor_ssr_1
+  #  - lambda: id(shutters_speed)--;
+  #  - lambda: ESP_LOGI("speed", "new val %i", id(shutters_speed));
     assumed_state: false
 
 i2c:
