@@ -9,14 +9,14 @@
 #                      over sink strip - 33                  21 - SDA to the IO expander(s) + BMP280
 #                           MQ-7 input - 34                 GND
 # (-4K7-gpio -4K7-gnd) kitchen lght sw - 35                 GND
-#                          led strip 1 - 25     Lolin D32    19 - MISO to CS5460A's SDO
-#         temp unused,     led strip 2 - 26                  23 - MOSI to CS5460A's SDI
-#                          led strip 3 - 27                  18 - SCK to CS5460A's SCLK
-#                temp led strip 3      - 14                   5 - kitchen light power supply mosfet gate (drain to kitchen light -, source to GND)
-#                                      - 12                  3V
-#                                      - 13                  17 - to potential oversink light mosfet gate (oversink yellow)
-#                                        5V                  16 - 
-#                                        GND                  4 - 
+#                          led strip 3 - 25     Lolin D32    19 - MISO to CS5460A's SDO
+#                          led strip 2 - 26                  23 - MOSI to CS5460A's SDI
+#                          led strip 1 - 27                  18 - SCK to CS5460A's SCLK
+#                              (free)  - 14                   5 - kitchen light power supply mosfet gate (drain to kitchen light -, source to GND)
+#                              (free)  - 12                  3V
+#                              (free)  - 13                  17 - to potential oversink light mosfet gate (oversink yellow)
+#                                        5V                  16 -  (free)
+#                                        GND                  4 -  (free)
 #                                                             0 - multiplexer sig 1
 #                                                           GND
 #                                                             2 - multiplexer sig 2
@@ -170,10 +170,42 @@
 #
 # Some cables may be shorter and some cables may be 2.5mm2 instead of 1.5mm2
 #
+# The below is outdated.
+# We've since replaced the old ESP32 with 5 burned out GPIOs and we're back to using the original 33, 25, 26, 27 with
+# each pin connected to the LED strip data input through a 100 Ohm resistor (parallel with 1280 Ohm after that didn't
+# work) and with under- and over- voltage diodes against ESD shock, inside a SRV05.4mr6 chip.
+#
+# Apart from being outdated, it apparently didn't protect the GPIOs well enough as they failed after a couple of days,
+# all 4 of them.
+# ------BEGIN OUTDATED------
+# still free:
+#   4
+#   16
+#   12  <--- using this in the testing
+#   13
+# possible connection for light strips:
+#
+#  GND --- source N-MOSFET drain ----o---- LED strip output
+#                   gate             |
+#                     |         1.3k Z   <--- is the value a concern here?? no, because only with the gate high should current flow
+#                     |              |
+#                    PIN            +5V
+# ------END OUTDATED------
+# New setup for 33, 25, 26, 27 is:
+#
+# PIN ---/\/\/\---o---- LED strip output
+#         100     |
+#              SRV05...
+#                 |
+#                GND (VCC pin of SRV05... is not connected)
+#
 esphome:
   name: kitchen
   platform: ESP32
   board: lolin32
+  #libraries:
+  #  - file:///home/balrog/repos/esphome/FastLED
+  #  - file:///home/balrog/repos/esphome/NeoPixelBus
   on_boot:
     priority: 700
     then:
@@ -192,7 +224,6 @@ esphome:
     - output.turn_off: relay_7_open
     - output.turn_off: relay_7_close
     - output.turn_on: kitchen_light_power
-    - lambda: pinMode(26, INPUT); # Shorted to pin 14 on current board so must be an input... might actually also be shorted to GND somehow..
     - output.turn_off: current_select_bit0
     - output.turn_off: current_select_bit1
     - output.turn_off: current_select_bit2
@@ -418,27 +449,42 @@ output:
 light:
   - name: "Kitchen LED strip 1"
     id: kitchen_led_strip1
-    pin: 25
-    chipset: WS2812B
+    pin: 27
+    #invert: yes
     num_leds: 90
     rgb_order: GRB
+    chipset: WS2812B
     platform: fastled_clockless
+    #type: GRB
+    #variant: WS2812X
+    #platform: neopixelbus
+    #method: esp32_i2s
     internal: yes
   - name: "Kitchen LED strip 2"
     id: kitchen_led_strip2
-    pin: 14
-    chipset: WS2812B
+    pin: 26
+    #invert: yes
     num_leds: 90
     rgb_order: GRB
+    chipset: WS2812B
     platform: fastled_clockless
+    #type: GRB
+    #variant: WS2812X
+    #platform: neopixelbus
+    #method: esp32_i2s
     internal: yes
   - name: "Kitchen LED strip 3"
     id: kitchen_led_strip3
-    pin: 27
-    chipset: WS2812B
+    pin: 25
+    #invert: yes
     num_leds: 90
     rgb_order: GRB
+    chipset: WS2812B
     platform: fastled_clockless
+    #type: GRB
+    #variant: WS2812X
+    #platform: neopixelbus
+    #method: esp32_i2s
     internal: yes
   - name: "Kitchen light"
     id: kitchen_light
@@ -718,9 +764,15 @@ light:
   - name: "Kitchen over-sink light"
     id: kitchen_oversink_light
     pin: 33
-    chipset: WS2812B
+    #invert: yes
     num_leds: 73
+    rgb_order: GRB
+    chipset: WS2812B
     platform: fastled_clockless
+    #type: GRB
+    #variant: WS2812X
+    #platform: neopixelbus
+    #method: esp32_i2s
     effects:
     - addressable_twinkle:
     - addressable_random_twinkle:
