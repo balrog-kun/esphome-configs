@@ -136,6 +136,9 @@ api:
     then:
     - script.stop: schedule_beep_x10
     - script.stop: beep_x10
+  - service: intercom_node_restart
+    then:
+    - button.press: node_restart
 
 ota:
   platform: esphome
@@ -644,3 +647,9 @@ sensor:
 text_sensor:
   - name: "Intercom node version"
     platform: version
+
+button:
+  - platform: restart
+    id: node_restart
+    internal: yes
+    disabled_by_default: yes
