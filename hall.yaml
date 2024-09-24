@@ -509,7 +509,7 @@ sensor:
     icon: 'mdi:car-light-high'
     platform: adc
     pin: 35
-    attenuation: 11db # 0V - 3.9V
+    attenuation: 12db # 0V - 3.9V
     unit_of_measurement: '%'
     accuracy_decimals: 0
     device_class: ""  # Doesn't match any predefined class
