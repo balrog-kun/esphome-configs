@@ -1,4 +1,50 @@
 # vim: et:ts=2:sw=2
+#
+# Power comes in through a red/black speaker cable, red connects to thin white, black to thin blue.  Blue and white power the Lolin D32 in parallel with a 470uF cap.
+#
+# TODO: this is just a placeholder, we have no data and no schematics for this???
+#                                        3V                 GND
+#                                        EN               (1)TX
+#                                      - VP(36)           (3)RX
+#                                      - VN(39)              3V - 
+#                                      - 32                  22 - SCL to GY-085
+#                                      - 33                  21 - SDA to GY-085
+#                                      - 34                 GND
+# L298n in GND (to GND through 0.6Ohm) - 35                 GND
+#                                      - 25     Lolin D32    19
+#                        hall switch A - 26                  23
+#                                      - 27                  18
+#                              (free)  - 14                   5
+#                              (free)  - 12                  3V
+#                              (free)  - 13                  17
+#                                        5V                  16
+#                                        GND                  4 - L298n IN1
+#                                                             0 - L298n IN2
+#                                                           GND
+#                                                             2 - multiplexer sig 2
+#                                                            15 - multiplexer sig 3
+#
+# Possible L298n connection (might be duplicated inputs/outputs to handle more current, don't remember)
+# white (5V) ------------ L298n Vss --/'''''''\-- L298n OUT1 --------- Latch motor power 1 (blue)
+#                                     | L298n |
+# blue (GND) ---/\/\/\--- L298n Lo ---\_______/-- L298n OUT2 --------- Latch motor power 2 (white)
+#              0.6 Ohm                  |   |
+#                               L298n IN 1 IN 2
+#
+# 6-wire cables:
+#   connection to motor+GY-85 (BMP085+ITG3205+ADXL345+HMC5883L):
+#     blue   Latch motor power 1 (L298n OUT1?)
+#     white  Latch motor power 2 (L298n OUT2?)
+#     gray   GND (blue thin from black speaker cable)
+#     green  SDA
+#     yellow SCL
+#     red    3V from LolinD32's internal regulator?
+#
+# The motor would originally sit in the frame hole quite stiff and need some force to pull out.  Currently after maintenance
+# it's a little loose and comes out on its own.  White cable up, blue down but either way should work.
+#
+# On the motor, blue connected to the terminal near the "+" sign and on the side of the longer one of the reduction aux shafts.
+#
 esphome:
   name: door
   platform: ESP32
