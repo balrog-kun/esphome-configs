@@ -60,6 +60,7 @@ api:
 #          id(lv_light_update).execute();
 
 ota:
+  platform: esphome
   password: !secret ota_password
 
 web_server:
