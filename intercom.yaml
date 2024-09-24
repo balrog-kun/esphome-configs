@@ -138,6 +138,7 @@ api:
     - script.stop: beep_x10
 
 ota:
+  platform: esphome
   password: !secret ota_password
 
 web_server:
