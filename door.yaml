@@ -77,8 +77,11 @@ logger:
 api:
   reboot_timeout: 0s
   services:
-    - service: alarm
-      then:
+  - service: alarm
+    then:
+  - service: door_node_restart
+    then:
+    - button.press: node_restart
 
 ota:
   platform: esphome
@@ -86,7 +89,8 @@ ota:
 
 web_server:
   port: 80
-  js_url: http://openstreetmap.pl/balrog/webserver-v1.js
+  # TODO: update
+  #js_url: http://openstreetmap.pl/balrog/webserver-v1.js
 
 output:
   - id: motor_unlatch
@@ -344,6 +348,45 @@ binary_sensor:
     filters:
       delayed_on_off: 40ms
 
+switch:
+  - name: "Debug latch"
+    platform: template
+    turn_on_action:
+    - script.stop: relatch_later
+    - cover.stop: door_latch
+    - output.turn_off: motor_unlatch
+    - output.turn_on: motor_latch
+    - script.execute: monitor_current
+    - delay: 1s
+    - script.stop: monitor_current
+    - output.turn_off: motor_latch
+    assumed_state: false
+  - name: "Debug unlatch"
+    platform: template
+    turn_on_action:
+    - script.stop: relatch_later
+    - cover.stop: door_latch
+    - output.turn_off: motor_latch
+    - output.turn_on: motor_unlatch
+    - script.execute: monitor_current
+    - delay: 1s
+    - script.stop: monitor_current
+    - output.turn_off: motor_unlatch
+    assumed_state: false
+  - name: "Debug monitor only"
+    platform: template
+    turn_on_action:
+    - script.execute: monitor_current
+    - delay: 3s
+    - script.stop: monitor_current
+    assumed_state: false
+
 text_sensor:
   - name: "Door node version"
     platform: version
+
+button:
+  - platform: restart
+    id: node_restart
+    internal: yes
+    disabled_by_default: yes
