@@ -898,8 +898,8 @@ switch:
       - lambda: id(relay_update_mask) |= 1 << 0;
       - script.execute: relay_update
     optimistic: no
-    restore_state: yes
-    # restore_mode: RESTORE_DEFAULT_OFF
+    # restore_state: yes
+    restore_mode: RESTORE_DEFAULT_OFF
   - name: "Bedroom 1 socket 2"
     id: bedroom1_socket2
     icon: 'mdi:power-socket-de'
@@ -915,9 +915,9 @@ switch:
       - lambda: id(relay_update_mask) |= 1 << 1;
       - script.execute: relay_update
     optimistic: no
-    restore_state: yes
-    # restore_mode: RESTORE_DEFAULT_OFF
-  - name: "Tmp up"
+    # restore_state: yes
+    restore_mode: RESTORE_DEFAULT_OFF
+  - name: "Debug up"
     platform: template
     turn_on_action:
     - output.turn_off: shutters_motor_ssr_1
@@ -927,7 +927,7 @@ switch:
     #- lambda: id(shutters_speed)++;
     #- lambda: ESP_LOGI("speed", "new val %i", id(shutters_speed));
     assumed_state: false
-  - name: "Tmp down"
+  - name: "Debug down"
     platform: template
     turn_on_action:
     - output.turn_off: shutters_motor_ssr_2
