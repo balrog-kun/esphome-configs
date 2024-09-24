@@ -374,7 +374,7 @@ ads1115:
   id: ads1115_48
 
 sensor:
-  - platform: bme280
+  - platform: bme280_i2c
     temperature:
       name: "Living room node temperature"
       id: living_room_node_temperature
