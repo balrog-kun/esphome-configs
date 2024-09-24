@@ -123,6 +123,10 @@ light:
     id: lv_light1
     output: lv_light_gpio4
     platform: monochromatic
+    on_state:
+      then:
+      - lambda: |-
+          id(lv_light_night) = false;
   - name: "Living room lights 2"
     id: lv_light2
     output: lv_light_gpio2
@@ -175,6 +179,8 @@ script:
             on[abs_pos] = true;
           }
 
+          id(lv_light_night) = false;
+
           for (int i = 0; i < num; i++) {
             auto vals = lights[i]->remote_values;
 
@@ -184,11 +190,19 @@ script:
               call.set_brightness(1.0f);
               call.set_transition_length(1000);
               call.perform();
+            } else if (!on[i] && vals.is_on() && i == 0 && id(living_room_brightness).state < 10.0f) {
+              lights[i]->turn_off().perform(); // Do this to force the off state being published
+              auto call = lights[i]->turn_on();
+              call.set_brightness(0.14f);
+              call.set_save(false);
+              call.set_publish(false);
+              // Longer times need the gamma or min_power to be set correctly at this brightness level...
+              call.set_transition_length(300);
+              call.perform();
+              id(lv_light_night) = true;
             } else if (!on[i] && vals.is_on())
               lights[i]->turn_off().perform();
           }
-
-          id(lv_light_night) = false;
 
   - id: ring_alarm
     then:
@@ -322,7 +336,7 @@ binary_sensor:
             if (is_off(id(lv_light1)) && is_off(id(lv_light2)) && is_off(id(lv_light3)) &&
                 is_off(id(lv_light4)) && is_off(id(lv_light5)) &&
                 !id(lv_light_night) &&
-                id(living_room_brightness).state < 0.5f) {
+                id(living_room_brightness).state < 10.0f) {
               id(lv_light_night_restore_val) = id(lv_light1).remote_values.get_brightness();
               auto call = id(lv_light1)->turn_on();
               call.set_brightness(0.14f);
@@ -336,7 +350,7 @@ binary_sensor:
     on_release:
       then:
         - lambda: |-
-            if (id(lv_light_night) && id(lv_light1).remote_values.get_brightness() == 0.14f) {
+            if (id(lv_light_night)) {
               auto call = id(lv_light1)->turn_off();
               // needs to be done as a separate operation when this transition ends,
               // otherwise is messes up the fade-out
