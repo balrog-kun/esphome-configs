@@ -199,6 +199,10 @@ light:
     id: hall_light
     output: hall_light_gpio
     platform: monochromatic
+    on_state:
+      then:
+      - lambda: |-
+          id(hall_light_night) = false;
   - name: "Bathroom lights 1"
     id: bathroom_light1
     output: bathroom_light_gpio1
@@ -315,7 +319,7 @@ binary_sensor:
             call.set_transition_length(1000);
             call.perform();
             id(hall_light_night) = false;
-          } else if (id(hall_kitchen_motion).state > 0.0f && id(hall_brightness).state < 0.5f) {
+          } else if (id(hall_kitchen_motion).state > 0.0f && id(hall_brightness).state < 10.0f) {
             id(hall_light_night_restore_val) = l->remote_values.get_brightness();
             l->turn_off().perform(); // Do this to force the off state being published
             auto call = l->turn_on();
@@ -464,7 +468,7 @@ binary_sensor:
 
             if (is_off(l) &&
                 !id(hall_light_night) &&
-                id(hall_brightness).state < 0.5f) {
+                id(hall_brightness).state < 10.0f) {
               id(hall_light_night_restore_val) = l->remote_values.get_brightness();
               auto call = l->turn_on();
               call.set_brightness(0.14f);
@@ -479,7 +483,7 @@ binary_sensor:
       then:
         - lambda: |-
             auto l = id(hall_light);
-            if (id(hall_light_night) && l->remote_values.get_brightness() == 0.14f) {
+            if (id(hall_light_night)) {
               auto call = l->turn_off();
               // needs to be done as a separate operation when this transition ends,
               // otherwise is messes up the fade-out
