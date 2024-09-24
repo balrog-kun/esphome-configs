@@ -449,6 +449,19 @@ light:
     on_turn_off:
       then:
       - script.execute: switch_b_led_update
+        # We can do this because on_* events are  triggered on a publish (.remote_values changing) while
+        # the night light logic doesn't publish any new values, only affects .current_values
+      - script.execute: night_light_update
+
+time:
+  - id: hatime
+    platform: homeassistant
+    on_time:
+    - seconds: 0
+      minutes: 0
+      hours: 22,8
+      then:
+      - script.execute: night_light_update
 
 script:
   - id: ring_alarm
@@ -677,6 +690,40 @@ script:
             else:
             - cover.close: bedroom1_shutters
 
+  - id: night_light_update
+    then:
+    - lambda: |-
+        auto l = id(bedroom1_light);
+        auto is_off = [](light::LightState *ls) {
+          light::LightColorValues vals = ls->remote_values;
+          return !vals.is_on() || vals.get_brightness() < 0.14f;
+        };
+
+        if (!is_off(l))
+          return;
+
+        int hour = id(hatime).now().hour;
+        bool is_night = hour >= 22 || hour < 8;
+
+        if (id(bedroom1_night_light).state && is_night) {
+          if (l->current_values.get_brightness() != 0.14f) {
+            auto call = l->turn_on();
+            call.set_brightness(0.14f);
+            call.set_save(false);
+            call.set_publish(false);
+            call.set_transition_length(30000);
+            call.perform();
+          }
+        } else {
+          if (l->current_values.get_brightness() == 0.14f) {
+            auto call = l->turn_off();
+            call.set_save(false);
+            call.set_publish(false);
+            call.set_transition_length(30000);
+            call.perform();
+          }
+        }
+
 cover:
   - platform: time_based
     name: "Bedroom 1 shutters"
@@ -890,6 +937,18 @@ switch:
   #  - lambda: id(shutters_speed)--;
   #  - lambda: ESP_LOGI("speed", "new val %i", id(shutters_speed));
     assumed_state: false
+  - name: "Bedroom 1 night light"
+    id: bedroom1_night_light
+    icon: 'mdi:ceiling-light'
+    platform: template
+    turn_on_action:
+      then:
+      - script.execute: night_light_update
+    turn_off_action:
+      then:
+      - script.execute: night_light_update
+    optimistic: yes
+    restore_mode: RESTORE_DEFAULT_OFF
 
 i2c:
   sda: 15
