@@ -693,10 +693,11 @@ script:
   - id: night_light_update
     then:
     - lambda: |-
+        float limit_val = 0.12f; /* Why is 2% in the web UI brighter than the 12% here? */
         auto l = id(bedroom1_light);
-        auto is_off = [](light::LightState *ls) {
+        auto is_off = [&](light::LightState *ls) {
           light::LightColorValues vals = ls->remote_values;
-          return !vals.is_on() || vals.get_brightness() < 0.14f;
+          return !vals.is_on() || vals.get_brightness() < limit_val;
         };
 
         if (!is_off(l))
@@ -706,16 +707,16 @@ script:
         bool is_night = hour >= 22 || hour < 8;
 
         if (id(bedroom1_night_light).state && is_night) {
-          if (l->current_values.get_brightness() != 0.14f) {
+          if (!l->current_values.is_on() || l->current_values.get_brightness() != limit_val) {
             auto call = l->turn_on();
-            call.set_brightness(0.14f);
+            call.set_brightness(limit_val);
             call.set_save(false);
             call.set_publish(false);
-            call.set_transition_length(30000);
+            call.set_transition_length(15000);
             call.perform();
           }
         } else {
-          if (l->current_values.get_brightness() == 0.14f) {
+          if (l->current_values.get_brightness() == limit_val) {
             auto call = l->turn_off();
             call.set_save(false);
             call.set_publish(false);
@@ -768,13 +769,13 @@ binary_sensor:
           - cover.stop: bedroom1_shutters
       - if:
           condition:
-            lambda: return id(bedroom1_switch_b_up).state || (uint32_t) (millis() - id(switch_b_up_release_time)) < 300;
+            lambda: return (id(bedroom1_switch_b_up).state || (uint32_t) (millis() - id(switch_b_up_release_time)) < 300) && !id(bedroom1_switch_b_shutters_disable).state;
           then:
           - cover.close: bedroom1_shutters
           else:
           - if:
               condition:
-                lambda: return id(bedroom1_switch_b_down).state || (uint32_t) (millis() - id(switch_b_down_release_time)) < 300;
+                lambda: return (id(bedroom1_switch_b_down).state || (uint32_t) (millis() - id(switch_b_down_release_time)) < 300) && !id(bedroom1_switch_b_shutters_disable).state;
               then:
               - cover.open: bedroom1_shutters
     on_release:
@@ -818,7 +819,7 @@ binary_sensor:
           - script.execute: switch_b_led_update
           - if:
               condition:
-                lambda: return id(bedroom1_shutters).current_operation == CoverOperation::COVER_OPERATION_IDLE;
+                lambda: return id(bedroom1_shutters).current_operation == CoverOperation::COVER_OPERATION_IDLE && !id(bedroom1_switch_b_shutters_disable).state;
               then:
               - cover.open: bedroom1_shutters
           else:
@@ -853,7 +854,7 @@ binary_sensor:
           - script.execute: switch_b_led_update
           - if:
               condition:
-                lambda: return id(bedroom1_shutters).current_operation == CoverOperation::COVER_OPERATION_IDLE;
+                lambda: return id(bedroom1_shutters).current_operation == CoverOperation::COVER_OPERATION_IDLE && !id(bedroom1_switch_b_shutters_disable).state;
               then:
               - cover.close: bedroom1_shutters
           else:
@@ -937,6 +938,11 @@ switch:
   #  - lambda: id(shutters_speed)--;
   #  - lambda: ESP_LOGI("speed", "new val %i", id(shutters_speed));
     assumed_state: false
+  - name: "Bedroom 1 switch B shutters disable"
+    id: bedroom1_switch_b_shutters_disable
+    platform: template
+    optimistic: yes
+    restore_mode: RESTORE_DEFAULT_OFF
   - name: "Bedroom 1 night light"
     id: bedroom1_night_light
     icon: 'mdi:ceiling-light'
