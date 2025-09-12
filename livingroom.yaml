@@ -118,6 +118,11 @@ output:
     pin:
       number: 33
       inverted: true
+  - id: stand1_top_brightness
+    platform: template
+    type: float
+    write_action:
+    - then:
 
 light:
   - name: "Living room lights 1"
@@ -148,6 +153,10 @@ light:
     id: bedroom1_light
     output: bedroom1_light_gpio
     platform: monochromatic
+  - name: "Stand 1 top light template"
+    id: stand1_top_template
+    output: stand1_top_brightness
+    platform: monochromatic
 
 globals:
   - id: lv_light_pos
@@ -159,7 +168,7 @@ globals:
   - id: lv_light_night_restore_val
     type: float
   - id: lv_lights_num
-    initial_value: '5'
+    initial_value: '6'
     type: int
   - id: lv_lights_timelapse_override
     type: bool
@@ -167,8 +176,8 @@ script:
   - id: lv_light_update
     then:
       - lambda: |-
-          static light::LightState *lights[] = { id(lv_light1), id(lv_light2), id(lv_light3), id(lv_light4), id(lv_light5) };
-          bool on[] = { false, false, false, false, false };
+          static light::LightState *lights[] = { id(lv_light1), id(lv_light2), id(lv_light3), id(lv_light4), id(lv_light5), id(stand1_top_template) };
+          bool on[] = { false, false, false, false, false, false };
           int num = id(lv_lights_num);
 
           if (id(lv_lights_timelapse_override))
@@ -176,7 +185,7 @@ script:
 
           for (int offset = 0; offset < id(lv_light_power); offset++) {
             int pos = id(lv_light_pos) - id(lv_light_power) / 2 + offset;
-            int abs_pos = ((pos % num) + num) % num;
+            int abs_pos = (pos + num) % num;
             on[abs_pos] = true;
           }
 
@@ -335,7 +344,7 @@ binary_sensor:
             };
 
             if (is_off(id(lv_light1)) && is_off(id(lv_light2)) && is_off(id(lv_light3)) &&
-                is_off(id(lv_light4)) && is_off(id(lv_light5)) &&
+                is_off(id(lv_light4)) && is_off(id(lv_light5)) && is_off(id(stand1_top_template)) &&
                 !id(lv_light_night) &&
                 id(living_room_brightness).state < 10.0f) {
               id(lv_light_night_restore_val) = id(lv_light1).remote_values.get_brightness();
